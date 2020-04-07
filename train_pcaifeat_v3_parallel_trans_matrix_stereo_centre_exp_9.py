@@ -32,7 +32,7 @@ MODEL_PATH = "/data/lyh/lab/pcaifeat_RobotCar_v3_performance_compare/log/train_s
 PC_MODEL_PATH = "/data/lyh/lab/pcaifeat_RobotCar_v3_performance_compare/log/train_save_trans_exp_6_4/pc_model_00441147.ckpt"
 IMG_MODEL_PATH = "/data/lyh/lab/pcaifeat_RobotCar_v3_performance_compare/log/train_save_trans_exp_6_5/img_model_00441147.ckpt"
 # log path
-LOG_PATH = "/data/lyh/lab/pcaifeat_RobotCar_v3_performance_compare/log/train_save_trans_exp_6_6"
+LOG_PATH = "/data/lyh/lab/pcaifeat_RobotCar_v3_performance_compare/log/train_save_trans_exp_9"
 # 1 for point cloud only, 2 for image only, 3 for pc&img&fc
 TRAINING_MODE = 3
 #TRAIN_ALL = True
@@ -771,12 +771,24 @@ def cal_trans_data(pc_dict,cnt = -1):
 	'''
 	aa = np.sum(transform_matrix,1).reshape([8,10])
 	print(np.sum(aa))
+	plt.figure(1)
+	plt.imshow(aa)	
+	'''
+	
+	global_matrix = np.ones(transform_matrix.shape)*1/4096
+	transform_matrix = transform_matrix + global_matrix
+	
+	
+	'''
+	aa = np.sum(transform_matrix,1).reshape([8,10])
+	print(np.sum(aa))
 	plt.figure(2)
 	plt.imshow(aa)	
 	plt.show()
 	input()
 	exit()
 	'''
+		
 	
 	return transform_matrix
 	
@@ -789,10 +801,12 @@ def get_trans_datas(load_pc_filenames,pc_data,pool):
 		#print(para_dict)
 		dict_list.append(para)
 	
-	#trans_data = []
-	#for i in range(len(dict_list)):
-	#	trans_data.append(cal_trans_data(dict_list[i],i))
-	#return
+	'''
+	trans_data = []
+	for i in range(len(dict_list)):
+		trans_data.append(cal_trans_data(dict_list[i],i))
+	return
+	'''
 	
 	trans_data = pool.map(cal_trans_data,dict_list)
 	return np.array(trans_data)
@@ -998,13 +1012,13 @@ def main():
 	#init tensorflow Session
 	with tf.Session(config=config) as sess:
 		#init all the variable
-		#init_network_variable(sess,train_saver)
-		#train_writer = tf.summary.FileWriter(os.path.join(LOG_PATH, 'train'), sess.graph)
-		#eval_writer = tf.summary.FileWriter(os.path.join(LOG_PATH, 'eval'))
+		init_network_variable(sess,train_saver)
+		train_writer = tf.summary.FileWriter(os.path.join(LOG_PATH, 'train'), sess.graph)
+		eval_writer = tf.summary.FileWriter(os.path.join(LOG_PATH, 'eval'))
 		
 		#init_training thread
-		#training_thread = threading.Thread(target=training, args=(sess,train_saver,train_writer,eval_writer,ops,))
-		#training_thread.start()
+		training_thread = threading.Thread(target=training, args=(sess,train_saver,train_writer,eval_writer,ops,))
+		training_thread.start()
 
 		#start training
 		for ep in range(EPOCH):
@@ -1021,7 +1035,7 @@ def main():
 				
 			load_data_thread.join()
 		
-		#training_thread.join()
+		training_thread.join()
 						
 					
 if __name__ == "__main__":

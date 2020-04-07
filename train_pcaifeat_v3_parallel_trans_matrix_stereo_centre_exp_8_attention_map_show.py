@@ -8,7 +8,7 @@ import numpy as np
 from loading_input_v3 import *
 from pointnetvlad_v3.pointnetvlad_trans import *
 import pointnetvlad_v3.loupe as lp
-import nets_v3.resnet_v1_trans as resnet
+import nets_v3.resnet_v1_trans_attention as resnet
 import shutil
 from multiprocessing.dummy import Pool as ThreadPool
 import threading
@@ -32,7 +32,7 @@ MODEL_PATH = "/data/lyh/lab/pcaifeat_RobotCar_v3_performance_compare/log/train_s
 PC_MODEL_PATH = "/data/lyh/lab/pcaifeat_RobotCar_v3_performance_compare/log/train_save_trans_exp_6_4/pc_model_00441147.ckpt"
 IMG_MODEL_PATH = "/data/lyh/lab/pcaifeat_RobotCar_v3_performance_compare/log/train_save_trans_exp_6_5/img_model_00441147.ckpt"
 # log path
-LOG_PATH = "/data/lyh/lab/pcaifeat_RobotCar_v3_performance_compare/log/train_save_trans_exp_6_6"
+LOG_PATH = "/data/lyh/lab/pcaifeat_RobotCar_v3_performance_compare/log/train_save_trans_exp_8"
 # 1 for point cloud only, 2 for image only, 3 for pc&img&fc
 TRAINING_MODE = 3
 #TRAIN_ALL = True
@@ -142,7 +142,8 @@ def init_pcnetwork(step):
 		is_training_pl = tf.placeholder(tf.bool, shape=())
 		bn_decay = get_bn_decay(step)
 		tf.summary.scalar('bn_decay', bn_decay)
-		pc_feat,pc_trans_feat = pointnetvlad(pc_placeholder,trans_mat_placeholder,is_training_pl,bn_decay)	
+		pc_feat,pc_trans_feat = pointnetvlad(pc_placeholder,trans_mat_placeholder,is_training_pl,bn_decay)
+		pc_trans_feat = tf.reduce_mean(pc_trans_feat,3,keep_dims=True)
 	return pc_placeholder,is_training_pl,trans_mat_placeholder,pc_feat,pc_trans_feat
 	
 def init_fusion_network(pc_feat,img_feat):
@@ -158,6 +159,9 @@ def init_pcainetwork():
 	#init sub-network
 	if TRAINING_MODE != 2:
 		pc_placeholder, is_training_pl, trans_mat_placeholder, pc_feat,pc_trans_feat = init_pcnetwork(step)
+		attention_map = pc_trans_feat
+		pc_trans_feat = tf.tile(pc_trans_feat, [1,1,1,2048])
+		
 	if TRAINING_MODE != 1:
 		img_placeholder, img_feat, img_pc_feat = init_imgnetwork(pc_trans_feat)
 		#img_feat = img_pc_feat
@@ -300,6 +304,7 @@ def init_pcainetwork():
 		
 	if TRAINING_MODE == 3:
 		ops = {
+		  "attention_map":attention_map,
 			"is_training_pl":is_training_pl,
 			"pc_placeholder":pc_placeholder,
 			"img_placeholder":img_placeholder,
@@ -443,7 +448,19 @@ def train_one_step(sess,ops,train_feed_dict,train_writer,is_training = True):
 		
 		else:
 			#pc_trans_feat,summary,step,all_loss,_,= sess.run([ops["pc_trans_feat"],ops["merged"],ops["step"],ops["all_loss"],ops["all_train_op"]],feed_dict = train_feed_dict)
-			summary,step,all_loss,_,_= sess.run([ops["merged"],ops["step"],ops["all_loss"],ops["img_train_op"],ops["fusion_train_op"]],feed_dict = train_feed_dict)
+			attention_map,summary,step,all_loss,_,_= sess.run([ops["attention_map"],ops["merged"],ops["step"],ops["all_loss"],ops["img_train_op"],ops["fusion_train_op"]],feed_dict = train_feed_dict)
+			
+			print(attention_map.shape)
+			attention_map = np.squeeze(attention_map)
+			input()
+			for i in range(attention_map.shape[0]):
+				plt.figure(i)
+				plt.imshow(attention_map[i])
+			
+			plt.show()
+			input()
+			exit()
+				
 			#print("batch num = %d , all_loss = %f"%(step, all_loss))
 								
 	#other training strategy
@@ -771,13 +788,26 @@ def cal_trans_data(pc_dict,cnt = -1):
 	'''
 	aa = np.sum(transform_matrix,1).reshape([8,10])
 	print(np.sum(aa))
+	plt.figure(1)
+	plt.imshow(aa)	
+	'''
+	
+	row_sum = np.sum(transform_matrix,1)
+	above_one = np.where(row_sum >= 1)
+	row_sum = np.expand_dims(row_sum,1).repeat(4096,axis=1)
+	transform_matrix[above_one,:] = transform_matrix[above_one,:]/row_sum[above_one,:]
+	global_matrix = np.ones(transform_matrix.shape)*1/409600
+	transform_matrix = transform_matrix + global_matrix
+	
+	'''
+	aa = np.sum(transform_matrix,1).reshape([8,10])
+	print(np.sum(aa))
 	plt.figure(2)
 	plt.imshow(aa)	
 	plt.show()
 	input()
 	exit()
-	'''
-	
+	'''	
 	return transform_matrix
 	
 	
@@ -998,13 +1028,13 @@ def main():
 	#init tensorflow Session
 	with tf.Session(config=config) as sess:
 		#init all the variable
-		#init_network_variable(sess,train_saver)
-		#train_writer = tf.summary.FileWriter(os.path.join(LOG_PATH, 'train'), sess.graph)
-		#eval_writer = tf.summary.FileWriter(os.path.join(LOG_PATH, 'eval'))
+		init_network_variable(sess,train_saver)
+		train_writer = tf.summary.FileWriter(os.path.join(LOG_PATH, 'train'), sess.graph)
+		eval_writer = tf.summary.FileWriter(os.path.join(LOG_PATH, 'eval'))
 		
 		#init_training thread
-		#training_thread = threading.Thread(target=training, args=(sess,train_saver,train_writer,eval_writer,ops,))
-		#training_thread.start()
+		training_thread = threading.Thread(target=training, args=(sess,train_saver,train_writer,eval_writer,ops,))
+		training_thread.start()
 
 		#start training
 		for ep in range(EPOCH):
@@ -1021,7 +1051,7 @@ def main():
 				
 			load_data_thread.join()
 		
-		#training_thread.join()
+		training_thread.join()
 						
 					
 if __name__ == "__main__":

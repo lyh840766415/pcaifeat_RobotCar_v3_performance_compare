@@ -340,8 +340,8 @@ def init_network_variable(sess,train_saver):
 	if TRAINING_MODE == 3:
 		#train_saver['all_saver'].restore(sess,MODEL_PATH)
 		#print("all_model restored")
-		#train_saver['pc_saver'].restore(sess,PC_MODEL_PATH)
-		#print("pc_model restored")
+		train_saver['pc_saver'].restore(sess,PC_MODEL_PATH)
+		print("pc_model restored")
 		train_saver['img_saver'].restore(sess,IMG_MODEL_PATH)
 		print("img_model restored")
 		

@@ -8,7 +8,7 @@ import numpy as np
 from loading_input_v3 import *
 from pointnetvlad_v3.pointnetvlad_trans import *
 import pointnetvlad_v3.loupe as lp
-import nets_v3.resnet_v1_trans as resnet
+import nets_v3.resnet_v1_trans_attention as resnet
 import shutil
 from multiprocessing.dummy import Pool as ThreadPool
 import threading
@@ -32,7 +32,7 @@ MODEL_PATH = "/data/lyh/lab/pcaifeat_RobotCar_v3_performance_compare/log/train_s
 PC_MODEL_PATH = "/data/lyh/lab/pcaifeat_RobotCar_v3_performance_compare/log/train_save_trans_exp_6_4/pc_model_00441147.ckpt"
 IMG_MODEL_PATH = "/data/lyh/lab/pcaifeat_RobotCar_v3_performance_compare/log/train_save_trans_exp_6_5/img_model_00441147.ckpt"
 # log path
-LOG_PATH = "/data/lyh/lab/pcaifeat_RobotCar_v3_performance_compare/log/train_save_trans_exp_6_6"
+LOG_PATH = "/data/lyh/lab/pcaifeat_RobotCar_v3_performance_compare/log/train_save_trans_exp_8"
 # 1 for point cloud only, 2 for image only, 3 for pc&img&fc
 TRAINING_MODE = 3
 #TRAIN_ALL = True
@@ -142,7 +142,9 @@ def init_pcnetwork(step):
 		is_training_pl = tf.placeholder(tf.bool, shape=())
 		bn_decay = get_bn_decay(step)
 		tf.summary.scalar('bn_decay', bn_decay)
-		pc_feat,pc_trans_feat = pointnetvlad(pc_placeholder,trans_mat_placeholder,is_training_pl,bn_decay)	
+		pc_feat,pc_trans_feat = pointnetvlad(pc_placeholder,trans_mat_placeholder,is_training_pl,bn_decay)
+		pc_trans_feat = tf.reduce_mean(pc_trans_feat,3,keep_dims=True)
+		pc_trans_feat = tf.tile(pc_trans_feat, [1,1,1,2048])
 	return pc_placeholder,is_training_pl,trans_mat_placeholder,pc_feat,pc_trans_feat
 	
 def init_fusion_network(pc_feat,img_feat):
@@ -771,13 +773,26 @@ def cal_trans_data(pc_dict,cnt = -1):
 	'''
 	aa = np.sum(transform_matrix,1).reshape([8,10])
 	print(np.sum(aa))
+	plt.figure(1)
+	plt.imshow(aa)	
+	'''
+	
+	row_sum = np.sum(transform_matrix,1)
+	above_one = np.where(row_sum >= 1)
+	row_sum = np.expand_dims(row_sum,1).repeat(4096,axis=1)
+	transform_matrix[above_one,:] = transform_matrix[above_one,:]/row_sum[above_one,:]
+	global_matrix = np.ones(transform_matrix.shape)*1/409600
+	transform_matrix = transform_matrix + global_matrix
+	
+	'''
+	aa = np.sum(transform_matrix,1).reshape([8,10])
+	print(np.sum(aa))
 	plt.figure(2)
 	plt.imshow(aa)	
 	plt.show()
 	input()
 	exit()
-	'''
-	
+	'''	
 	return transform_matrix
 	
 	

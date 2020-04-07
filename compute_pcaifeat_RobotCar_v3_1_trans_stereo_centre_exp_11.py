@@ -2,7 +2,7 @@ import numpy as np
 from loading_input_v3 import *
 from pointnetvlad_v3.pointnetvlad_trans import *
 import pointnetvlad_v3.loupe as lp
-import nets_v3.resnet_v1_trans as resnet
+import nets_v3.resnet_v1_trans_no_conv as resnet
 import tensorflow as tf
 from time import *
 import pickle
@@ -31,7 +31,7 @@ QUERY_SETS= get_sets_dict(QUERY_FILE)
 #model_path & image path
 PC_MODEL_PATH = ""
 IMG_MODEL_PATH = ""
-MODEL_PATH = "/data/lyh/lab/pcaifeat_RobotCar_v3_performance_compare/log/train_save_trans_exp_6_6/model_00882294.ckpt"
+MODEL_PATH = "/data/lyh/lab/pcaifeat_RobotCar_v3_performance_compare/log/train_save_trans_exp_11/model_00879293.ckpt"
 
 #camera model and posture
 CAMERA_MODEL = None
@@ -243,15 +243,17 @@ def cal_trans_data(pc_dict,cnt = -1):
 	transform_matrix[row1] = 1
 	transform_matrix = transform_matrix.reshape([80,4096])
 	
-	'''
-	aa = np.sum(transform_matrix,1).reshape([8,10])
-	print(np.sum(aa))
-	plt.figure(2)
-	plt.imshow(aa)	
-	plt.show()
-	input()
-	exit()
-	'''
+	
+	row_sum = np.sum(transform_matrix,1)
+	above_one = np.where(row_sum >= 1)
+	row_sum = np.expand_dims(row_sum,1).repeat(4096,axis=1)
+	transform_matrix[above_one,:] = transform_matrix[above_one,:]/row_sum[above_one,:]
+	global_matrix = np.ones(transform_matrix.shape)*1/409600
+	transform_matrix = transform_matrix + global_matrix
+	
+	row_sum = np.sum(transform_matrix,1)
+	row_sum = np.expand_dims(row_sum,1).repeat(4096,axis=1)
+	transform_matrix[:,:] = transform_matrix[:,:]/row_sum[:,:]
 	
 	return transform_matrix
 	
