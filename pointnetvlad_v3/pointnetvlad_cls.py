@@ -25,7 +25,7 @@ def pointnetvlad(point_cloud, is_training, bn_decay=None):
     #num_pointclouds_per_query = point_cloud.get_shape()[1].value
     num_points = point_cloud.get_shape()[1].value
     CLUSTER_SIZE=64
-    OUTPUT_DIM=1024
+    OUTPUT_DIM=1000
     #point_cloud = tf.reshape(point_cloud, [batch_num_queries*num_pointclouds_per_query, num_points,3])
 
     with tf.variable_scope('transform_net1') as sc:
