@@ -2,7 +2,7 @@ import numpy as np
 from loading_input_v3 import *
 from pointnetvlad_v3.pointnetvlad_trans import *
 import pointnetvlad_v3.loupe as lp
-import nets_v3.resnet_v1_trans_no_conv as resnet
+import nets_v3.resnet_v1_trans as resnet
 import tensorflow as tf
 from time import *
 import pickle
@@ -31,7 +31,7 @@ QUERY_SETS= get_sets_dict(QUERY_FILE)
 #model_path & image path
 PC_MODEL_PATH = ""
 IMG_MODEL_PATH = ""
-MODEL_PATH = "/data/lyh/lab/pcaifeat_RobotCar_v3_performance_compare/log/train_save_trans_exp_11/model_00879293.ckpt"
+MODEL_PATH = "/data/lyh/lab/pcaifeat_RobotCar_v3_performance_compare/log/train_save_trans_exp_18/model_00441147.ckpt"
 
 #camera model and posture
 CAMERA_MODEL = None
@@ -152,7 +152,7 @@ def init_all_feat():
 	if TRAINING_MODE != 1:
 		img_feat = np.empty([0,1000],dtype=np.float32)
 	if TRAINING_MODE == 3:
-		pcai_feat = np.empty([0,1000],dtype=np.float32)
+		pcai_feat = np.empty([0,2000],dtype=np.float32)
 	
 	if TRAINING_MODE == 1:
 		all_feat = {"pc_feat":pc_feat}
@@ -242,7 +242,6 @@ def cal_trans_data(pc_dict,cnt = -1):
 	row1 = (row*4096+nozero).astype(int).tolist()
 	transform_matrix[row1] = 1
 	transform_matrix = transform_matrix.reshape([80,4096])
-	
 	
 	row_sum = np.sum(transform_matrix,1)
 	above_one = np.where(row_sum >= 1)
@@ -478,8 +477,8 @@ def init_pcnetwork(step):
 
 def init_fusion_network(pc_feat,img_feat):
 	with tf.variable_scope("fusion_var"):
-		concat_feat = tf.concat((pc_feat,img_feat),axis=1)
-		pcai_feat = tf.layers.dense(concat_feat,EMBBED_SIZE,activation=tf.nn.relu)
+		pcai_feat = tf.concat((pc_feat,img_feat),axis=1)
+		#pcai_feat = tf.layers.dense(concat_feat,EMBBED_SIZE,activation=tf.nn.relu)
 	return pcai_feat
 
 def init_pcainetwork():
@@ -495,7 +494,9 @@ def init_pcainetwork():
 	if TRAINING_MODE == 3:
 		pcai_feat = init_fusion_network(pc_feat,img_pc_feat)
 		
-		
+	print(pc_feat)	
+	print(img_feat)
+	print(pcai_feat)
 	#output of pcainetwork init
 	if TRAINING_MODE == 1:
 		ops = {

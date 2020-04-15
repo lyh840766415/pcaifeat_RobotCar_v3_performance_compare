@@ -156,18 +156,28 @@ def load_img_pc(load_pc_filenames,load_img_filenames,pool,pc_64bit):
 	
 	return pcs,imgs
 
-def load_img_pc_from_net(load_pc_filenames,load_img_filenames,pool):
+def load_img_pc_from_net(load_pc_filenames,load_img_filenames,pool,pc_64bit):
 	pcs = []
 	imgs = []
+	
+	NET_PATH = "/media/lyh/shared_space/lyh/dataset/ROBOTCAR/"
 	if load_pc_filenames != None:
-		pcs = pool.map(load_pc_file,load_pc_filenames)
+		for i in range(len(load_pc_filenames)):
+			substr = load_pc_filenames[i].split('/')
+			substr = [x for x in substr if x != '']
+			load_pc_filenames[i] = os.path.join(NET_PATH,substr[-5],substr[-4],substr[-3],substr[-2],substr[-1])
+		if pc_64bit:
+			pcs = pool.map(load_pc_file_64,load_pc_filenames)
+		else:
+			pcs = pool.map(load_pc_file_32,load_pc_filenames)
 		pcs = np.array(pcs)
+		
 	if load_img_filenames != None:
-		NET_PATH = "/media/lyh/shared_space/lyh/dataset/ROBOTCAR/"
 		for i in range(len(load_img_filenames)):
 			substr = load_img_filenames[i].split('/')
 			substr = [x for x in substr if x != '']
 			load_img_filenames[i] = os.path.join(NET_PATH,substr[-5],substr[-4],substr[-3],substr[-2],substr[-1])
+
 		imgs = pool.map(load_image,load_img_filenames)
 		imgs=np.array(imgs)
 	

@@ -2,7 +2,7 @@ import numpy as np
 from loading_input_v3 import *
 from pointnetvlad_v3.pointnetvlad_trans import *
 import pointnetvlad_v3.loupe as lp
-import nets_v3.resnet_v1_trans_no_conv as resnet
+import nets_v3.resnet_v1_trans_max_pooling as resnet
 import tensorflow as tf
 from time import *
 import pickle
@@ -31,7 +31,7 @@ QUERY_SETS= get_sets_dict(QUERY_FILE)
 #model_path & image path
 PC_MODEL_PATH = ""
 IMG_MODEL_PATH = ""
-MODEL_PATH = "/data/lyh/lab/pcaifeat_RobotCar_v3_performance_compare/log/train_save_trans_exp_11/model_00879293.ckpt"
+MODEL_PATH = "/data/lyh/lab/pcaifeat_RobotCar_v3_performance_compare/log/train_save_trans_exp_16/model_00882294.ckpt"
 
 #camera model and posture
 CAMERA_MODEL = None
@@ -242,7 +242,6 @@ def cal_trans_data(pc_dict,cnt = -1):
 	row1 = (row*4096+nozero).astype(int).tolist()
 	transform_matrix[row1] = 1
 	transform_matrix = transform_matrix.reshape([80,4096])
-	
 	
 	row_sum = np.sum(transform_matrix,1)
 	above_one = np.where(row_sum >= 1)

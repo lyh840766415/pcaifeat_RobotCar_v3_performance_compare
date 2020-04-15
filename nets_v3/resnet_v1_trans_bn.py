@@ -15,7 +15,11 @@ def endpoints(image,pc_trans_feat,is_training):
 	
 	if not pc_trans_feat is None:
 		concat_feat = tf.concat((endpoints['img_var/resnet_v1_50/block4'],pc_trans_feat),axis=3)
-		conv_feat = tf.layers.conv2d(concat_feat,2048,3,activation=tf.nn.relu)
+		concat_feat = tf.layers.batch_normalization(concat_feat, training = is_training)
+		conv_feat = tf.layers.conv2d(concat_feat,2048,3,activation=None)
+		conv_feat = tf.layers.batch_normalization(conv_feat, training = is_training)
+		conv_feat = tf.nn.relu(conv_feat)
+		
 		img_pc_feat = tf.reduce_mean(conv_feat, [1, 2], name='pool6')
 		img_pc_feat = tf.layers.dense(img_pc_feat,1000,activation=tf.nn.relu,name='dense_local_fuse')
 		img_pc_feat = tf.nn.l2_normalize(img_pc_feat,1)
