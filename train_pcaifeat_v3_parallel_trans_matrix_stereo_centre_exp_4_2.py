@@ -26,7 +26,7 @@ MODEL_PATH = "/data/lyh/lab/pcaifeat_RobotCar_v3_1/log/train_save_trans_fusion/m
 PC_MODEL_PATH = "/data/lyh/lab/pcaifeat_RobotCar_v3_performance_compare/log/train_save_trans_exp_6_4/pc_model_00441147.ckpt"
 IMG_MODEL_PATH = "/data/lyh/lab/pcaifeat_RobotCar_v3_performance_compare/log/train_save_trans_exp_6_5/img_model_00441147.ckpt"
 # log path
-LOG_PATH = "/data/lyh/lab/pcaifeat_RobotCar_v3_performance_compare/log/train_save_trans_exp_4_1"
+LOG_PATH = "/data/lyh/lab/pcaifeat_RobotCar_v3_performance_compare/log/train_save_trans_exp_4_2"
 # 1 for point cloud only, 2 for image only, 3 for pc&img&fc
 TRAINING_MODE = 3
 #TRAIN_ALL = True
@@ -37,12 +37,12 @@ quadruplet = True
 
 
 # Epoch & Batch size &FINAL EMBBED SIZE & learning rate
-EPOCH = 5
+EPOCH = 20
 LOAD_BATCH_SIZE = 100
 FEAT_BATCH_SIZE = 1
 LOAD_FEAT_RATIO = LOAD_BATCH_SIZE//FEAT_BATCH_SIZE
 EMBBED_SIZE = 1000
-BASE_LEARNING_RATE = 5e-5
+BASE_LEARNING_RATE = 3.645e-5
 
 #pos num,neg num,other neg num,all_num
 POS_NUM = 2
@@ -119,7 +119,8 @@ def get_bn_decay(step):
 	BN_DECAY_DECAY_STEP = float(DECAY_STEP)
 	BN_DECAY_CLIP = 0.99
 	bn_momentum = tf.train.exponential_decay(BN_INIT_DECAY,step*FEAT_BATCH_SIZE,BN_DECAY_DECAY_STEP,BN_DECAY_DECAY_RATE,staircase=True)
-	bn_decay = tf.minimum(BN_DECAY_CLIP, 1 - bn_momentum)
+	#bn_decay = tf.minimum(BN_DECAY_CLIP, 1 - bn_momentum)
+	bn_decay = tf.minimum(BN_DECAY_CLIP, 0.875)
 	return bn_decay
 
 def init_imgnetwork():
@@ -141,8 +142,8 @@ def init_pcnetwork(step):
 	
 def init_fusion_network(pc_feat,img_feat):
 	with tf.variable_scope("fusion_var"):
-		concat_feat = tf.concat((pc_feat,img_feat),axis=1)
-		pcai_feat = tf.layers.dense(concat_feat,EMBBED_SIZE,activation=tf.nn.relu)
+		pcai_feat = tf.concat((pc_feat,img_feat),axis=1)
+		#pcai_feat = tf.layers.dense(concat_feat,EMBBED_SIZE,activation=tf.nn.relu)
 		print(pcai_feat)
 	return pcai_feat
 
@@ -214,7 +215,7 @@ def init_pcainetwork():
 			img_train_op = optimizer.minimize(img_loss, global_step=step)
 		if TRAINING_MODE == 3:
 			pc_img_train_op = optimizer.minimize(pc_loss+img_loss, global_step=step,var_list=pc_img_variable)			
-			fusion_train_op = optimizer.minimize(finally_loss, global_step=step,var_list=fusion_variable)
+			fusion_train_op = None
 			all_train_op = optimizer.minimize(all_loss, global_step=step)
 	
 	#merged all log variable
@@ -389,7 +390,7 @@ def train_one_step(sess,ops,train_feed_dict,train_writer,is_training = True):
 		else:
 			#if STEP % 3 == 2:
 			if True:
-				summary,step,all_loss,_,= sess.run([ops["merged"],ops["step"],ops["all_loss"],ops["fusion_train_op"]],feed_dict = train_feed_dict)
+				summary,step,all_loss,_,= sess.run([ops["merged"],ops["step"],ops["all_loss"],ops["all_train_op"]],feed_dict = train_feed_dict)
 				#print("batch num = %d , all_loss = %f"%(step, all_loss))
 			else:
 				summary,step,pc_loss,img_loss,_,= sess.run([ops["merged"],ops["step"],ops["pc_loss"],ops["img_loss"],ops["pc_img_train_op"]],feed_dict = train_feed_dict)
