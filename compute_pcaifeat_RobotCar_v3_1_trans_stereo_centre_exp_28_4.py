@@ -1,8 +1,8 @@
 import numpy as np
 from loading_input_v3 import *
-from pointnetvlad_v3.pointnetvlad_non_local import *
+from pointnetvlad_v3.pointnetvlad_fusion_non_local import *
 import pointnetvlad_v3.loupe as lp
-import nets_v3.resnet_v1_trans as resnet
+import nets_v3.resnet_v1_fusion_non_local as resnet
 import tensorflow as tf
 from time import *
 import pickle
@@ -19,19 +19,19 @@ import matplotlib.pyplot as plt
 pool = ThreadPool(5)
 
 # 1 for point cloud only, 2 for image only, 3 for pc&img&fc
-TRAINING_MODE = 1
-BATCH_SIZE = 50
+TRAINING_MODE = 2
+BATCH_SIZE = 100
 EMBBED_SIZE = 1000
 
-DATABASE_FILE= 'generate_queries_v3/stereo_centre_trans_RobotCar_ground_oxford_evaluation_database.pickle'
-QUERY_FILE= 'generate_queries_v3/stereo_centre_trans_RobotCar_ground_oxford_evaluation_query.pickle'
+DATABASE_FILE= 'generate_queries_v3/stereo_centre_trans_RobotCar_ground_selected_oxford_evaluation_database.pickle'
+QUERY_FILE= 'generate_queries_v3/stereo_centre_trans_RobotCar_ground_selected_oxford_evaluation_query.pickle'
 DATABASE_SETS= get_sets_dict(DATABASE_FILE)
 QUERY_SETS= get_sets_dict(QUERY_FILE)
 
 #model_path & image path
-PC_MODEL_PATH = "/data/lyh/lab/pcaifeat_RobotCar_v3_performance_compare/log/train_save_trans_exp_26/pc_model_00441147.ckpt"
-IMG_MODEL_PATH = ""
-MODEL_PATH = ""
+PC_MODEL_PATH = ""
+IMG_MODEL_PATH = "/data/lyh/lab/pcaifeat_RobotCar_v3_performance_compare/log/train_save_trans_exp_28_4/img_model_01767589.ckpt"
+MODEL_PATH = "/data/lyh/lab/pcaifeat_RobotCar_v3_performance_compare/log/train_save_trans_exp_28/model_00441147.ckpt"
 
 #camera model and posture
 CAMERA_MODEL = None
@@ -101,7 +101,7 @@ def get_load_batch_filename(dict_to_process,batch_keys,edge = False,remind_index
 	if TRAINING_MODE == 3:
 		return pc_files,img_files
 
-def prepare_batch_data(pc_data,img_data,trans_data,ops):
+def prepare_batch_data(pc_data,img_data,ops):
 	is_training=False
 	if TRAINING_MODE == 1:
 		train_feed_dict = {
@@ -118,8 +118,7 @@ def prepare_batch_data(pc_data,img_data,trans_data,ops):
 		train_feed_dict = {
 			ops["is_training_pl"]:is_training,
 			ops["img_placeholder"]:img_data,
-			ops["pc_placeholder"]:pc_data,
-			ops["trans_mat_placeholder"]:trans_data}
+			ops["pc_placeholder"]:pc_data}
 		return train_feed_dict
 		
 	print("prepare_batch_data_error,no_such train mode.")
@@ -150,9 +149,9 @@ def init_all_feat():
 	if TRAINING_MODE != 2:
 		pc_feat = np.empty([0,1000],dtype=np.float32)
 	if TRAINING_MODE != 1:
-		img_feat = np.empty([0,1000],dtype=np.float32)
+		img_feat = np.empty([0,2048],dtype=np.float32)
 	if TRAINING_MODE == 3:
-		pcai_feat = np.empty([0,1000],dtype=np.float32)
+		pcai_feat = np.empty([0,3048],dtype=np.float32)
 	
 	if TRAINING_MODE == 1:
 		all_feat = {"pc_feat":pc_feat}
@@ -326,7 +325,7 @@ def get_latent_vectors(sess,ops,dict_to_process):
 		
 		print ('load time ',end_time - begin_time)
 		
-		train_feed_dict = prepare_batch_data(pc_data,img_data,trans_data,ops)
+		train_feed_dict = prepare_batch_data(pc_data,img_data,ops)
 		
 		begin_time = time()
 		feat = train_one_step(sess,ops,train_feed_dict)
@@ -380,7 +379,7 @@ def get_latent_vectors(sess,ops,dict_to_process):
 			pc_data[i] = cur_pc[0:3,:].T
 		
 	
-	train_feed_dict = prepare_batch_data(pc_data,img_data,trans_data,ops)
+	train_feed_dict = prepare_batch_data(pc_data,img_data,ops)
 	
 	feat = train_one_step(sess,ops,train_feed_dict)
 	
@@ -456,44 +455,125 @@ def get_bn_decay(step):
 	bn_decay = tf.minimum(BN_DECAY_CLIP, 1 - bn_momentum)
 	return bn_decay
 
-
-def init_imgnetwork(pc_trans_feat):
+def init_imgnetwork(is_training = False):
 	with tf.variable_scope("img_var"):
 		img_placeholder = tf.placeholder(tf.float32,shape=[BATCH_SIZE,240,320,3])
-		img_feat, img_pc_feat = resnet.endpoints(img_placeholder,pc_trans_feat,is_training=False)
-	return img_placeholder, img_feat, img_pc_feat
+		img_feat = resnet.endpoints(img_placeholder,is_training=is_training)
 	
+	with tf.variable_scope("fusion_var"):
+		bottle_neck = 1024
+		batch_size = BATCH_SIZE
+		img_h = img_feat.get_shape()[1].value
+		img_w = img_feat.get_shape()[2].value
+		
+		t_net = tf.layers.conv2d(img_feat,bottle_neck,1,activation=None,name="non_local_t")
+		t_net = tf.reshape(t_net,[batch_size,-1,bottle_neck])
+		
+		p_net = tf.layers.conv2d(img_feat,bottle_neck,1,activation=None,name="non_local_p")
+		p_net = tf.reshape(p_net,[batch_size,-1,bottle_neck])
+		p_net= tf.transpose(p_net,[0,2,1])
+		
+		g_img_net = tf.layers.conv2d(img_feat,bottle_neck,1,activation=None,name="non_local_g_img")
+		g_img_net = tf.reshape(g_img_net,[batch_size,-1,bottle_neck])
+		
+		t_p_relation = tf.matmul(t_net,p_net)
+		t_p_g_img = tf.matmul(t_p_relation/80,g_img_net)
+		t_p_g_img = tf.reshape(t_p_g_img,[batch_size,img_h,img_w,bottle_neck])
+		non_local_img = tf.layers.conv2d(t_p_g_img,2048,1,activation=None,name="non_local_out_img")
+		non_local_img = tf.layers.batch_normalization(non_local_img,axis=3,gamma_initializer=tf.zeros_initializer(),training=is_training)
+		
+		img_feat = img_feat + non_local_img
+		img_feat = tf.reduce_mean(img_feat, [1, 2], name='pool5')
+		img_feat = tf.nn.l2_normalize(img_feat,1)
+	return img_placeholder, img_feat
+
 
 def init_pcnetwork(step):
 	with tf.variable_scope("pc_var"):
 		pc_placeholder = tf.placeholder(tf.float32,shape=[BATCH_SIZE,4096,3])
-		trans_mat_placeholder = tf.placeholder(tf.float32,shape=[BATCH_SIZE,80,4096])
 		is_training_pl = tf.placeholder(tf.bool, shape=())
 		bn_decay = get_bn_decay(step)
+		tf.summary.scalar('bn_decay', bn_decay)
 		pc_feat = pointnetvlad(pc_placeholder,is_training_pl,bn_decay)	
-	return pc_placeholder,is_training_pl,trans_mat_placeholder,pc_feat
-	
+	return pc_placeholder,is_training_pl,pc_feat
 
-def init_fusion_network(pc_feat,img_feat):
+def init_fusion_network(pc_feat,img_feat,is_training = False):
+	print(pc_feat)
+	print(img_feat)
+	batch_size = pc_feat.get_shape()[0].value
+	point_num = pc_feat.get_shape()[1].value
+	img_h = img_feat.get_shape()[1].value
+	img_w = img_feat.get_shape()[2].value
+	bottle_neck = 512
+	pc_feat_size = pc_feat.get_shape()[3].value
+	img_feat_size = img_feat.get_shape()[3].value
+	cluster_size=64
+	
 	with tf.variable_scope("fusion_var"):
-		concat_feat = tf.concat((pc_feat,img_feat),axis=1)
-		pcai_feat = tf.layers.dense(concat_feat,EMBBED_SIZE,activation=tf.nn.relu)
-	return pcai_feat
+		t_net = tf.layers.conv2d(pc_feat,bottle_neck,1,activation=None,name="non_local_t")
+		t_net = tf.reshape(t_net,[batch_size,-1,bottle_neck])
+		p_net = tf.layers.conv2d(img_feat,bottle_neck,1,activation=None,name="non_local_p")
+		p_net = tf.reshape(p_net,[batch_size,-1,bottle_neck])
+		p_net= tf.transpose(p_net,[0,2,1])
+		
+		g_pc_net = tf.layers.conv2d(pc_feat,bottle_neck,1,activation=None,name="non_local_g_pc")
+		g_pc_net = tf.reshape(g_pc_net,[batch_size,-1,bottle_neck])
+		g_img_net = tf.layers.conv2d(img_feat,bottle_neck,1,activation=None,name="non_local_g_img")
+		g_img_net = tf.reshape(g_img_net,[batch_size,-1,bottle_neck])
+		
+		t_p_relation = tf.matmul(t_net,p_net)
+		t_p_relation_transpose = tf.transpose(t_p_relation,[0,2,1])
+		t_p_g_pc = tf.matmul(t_p_relation/80,g_img_net)
+		t_p_g_img = tf.matmul(t_p_relation_transpose/4096,g_pc_net)
+		
+		t_p_g_pc = tf.reshape(t_p_g_pc,[batch_size,point_num,1,bottle_neck])
+		t_p_g_img = tf.reshape(t_p_g_img,[batch_size,img_h,img_w,bottle_neck])
+		
+		non_local_pc = tf.layers.conv2d(t_p_g_pc,pc_feat_size,1,activation=None,name="non_local_out_pc")
+		non_local_img = tf.layers.conv2d(t_p_g_img,img_feat_size,1,activation=None,name="non_local_out_img")
+		
+	
+	pc_feat = pc_feat + non_local_pc
+	img_feat = img_feat + non_local_img
+	
+	with tf.variable_scope("vlad_var"):
+		NetVLAD = lp.NetVLAD(feature_size=pc_feat_size, max_samples=point_num,cluster_size=cluster_size,output_dim=EMBBED_SIZE, gating=True, add_batch_norm=True,is_training=is_training)
+		pc_feat= tf.reshape(pc_feat,[-1,pc_feat_size])
+		pc_feat = tf.nn.l2_normalize(pc_feat,1)
+		pc_feat = NetVLAD.forward(pc_feat)
+		#normalize to have norm 1
+		pc_feat = tf.nn.l2_normalize(pc_feat,1)
+		pc_feat =  tf.reshape(pc_feat,[-1,EMBBED_SIZE])
+	
+	with tf.variable_scope("img_var"):
+		img_feat = tf.reduce_mean(img_feat, [1, 2], name='pool5')
+		img_feat = tf.nn.l2_normalize(img_feat,1)
+	
+	pcai_feat = tf.concat((pc_feat,img_feat),axis=1)
+	return pcai_feat,pc_feat,img_feat
 
 def init_pcainetwork():
 	#training step
-	step = tf.Variable(0)
-	pc_trans_feat = None	
+	with tf.variable_scope("bn_decay"):
+		step = tf.Variable(0)
+	pc_trans_feat = None
+	trans_mat_placeholder = None
 	#init sub-network
 	if TRAINING_MODE != 2:
-		pc_placeholder, is_training_pl, trans_mat_placeholder, pc_feat = init_pcnetwork(step)
+		pc_placeholder, is_training_pl, pc_feat = init_pcnetwork(step)
 	if TRAINING_MODE != 1:
-		img_placeholder, img_feat, img_pc_feat = init_imgnetwork(pc_trans_feat)
-		img_feat = img_pc_feat
+		img_placeholder, img_feat = init_imgnetwork()
 	if TRAINING_MODE == 3:
-		pcai_feat = init_fusion_network(pc_feat,img_pc_feat)
+		pcai_feat,pc_feat,img_feat = init_fusion_network(pc_feat,img_feat)
 		
 		
+	'''
+	print(img_feat)
+	print(pc_feat)
+	print(pcai_feat)
+	exit()
+	'''
+	
 	#output of pcainetwork init
 	if TRAINING_MODE == 1:
 		ops = {
@@ -549,7 +629,8 @@ def init_train_saver():
 	
 	'''
 	other_var = pc_variable = [v for v in variables if v.name.split('/')[0] !='pc_var']
-	for var in other_var:
+	
+	for var in variables:
 		print(var)
 	exit()
 	'''

@@ -1,8 +1,8 @@
 import numpy as np
 from loading_input_v3 import *
-from pointnetvlad_v3.pointnetvlad_non_local import *
+from pointnetvlad_v3.pointnetvlad_trans import *
 import pointnetvlad_v3.loupe as lp
-import nets_v3.resnet_v1_trans as resnet
+import nets_v3.resnet_v1_trans_no_fc_bn as resnet
 import tensorflow as tf
 from time import *
 import pickle
@@ -16,22 +16,22 @@ import matplotlib.pyplot as plt
 
 
 #thread pool
-pool = ThreadPool(5)
+pool = ThreadPool(10)
 
 # 1 for point cloud only, 2 for image only, 3 for pc&img&fc
-TRAINING_MODE = 1
-BATCH_SIZE = 50
+TRAINING_MODE = 3
+BATCH_SIZE = 100
 EMBBED_SIZE = 1000
 
-DATABASE_FILE= 'generate_queries_v3/stereo_centre_trans_RobotCar_ground_oxford_evaluation_database.pickle'
-QUERY_FILE= 'generate_queries_v3/stereo_centre_trans_RobotCar_ground_oxford_evaluation_query.pickle'
+DATABASE_FILE= 'generate_queries_v3/stereo_centre_trans_RobotCar_ground_selected_oxford_evaluation_database.pickle'
+QUERY_FILE= 'generate_queries_v3/stereo_centre_trans_RobotCar_ground_selected_oxford_evaluation_query.pickle'
 DATABASE_SETS= get_sets_dict(DATABASE_FILE)
 QUERY_SETS= get_sets_dict(QUERY_FILE)
 
 #model_path & image path
-PC_MODEL_PATH = "/data/lyh/lab/pcaifeat_RobotCar_v3_performance_compare/log/train_save_trans_exp_26/pc_model_00441147.ckpt"
+PC_MODEL_PATH = ""
 IMG_MODEL_PATH = ""
-MODEL_PATH = ""
+MODEL_PATH = "/data/lyh/lab/pcaifeat_RobotCar_v3_performance_compare/log/train_save_trans_exp_12_7/model_00882294.ckpt"
 
 #camera model and posture
 CAMERA_MODEL = None
@@ -77,8 +77,11 @@ def save_feat_to_file(database_feat,query_feat):
 		output_to_file(query_feat["pc_feat"],"query_pc_feat_"+MODEL_PATH[-13:-5]+".pickle")
 		output_to_file(database_feat["img_feat"],"database_img_feat_"+MODEL_PATH[-13:-5]+".pickle")
 		output_to_file(query_feat["img_feat"],"query_img_feat_"+MODEL_PATH[-13:-5]+".pickle")
+		output_to_file(database_feat["img_pc_feat"],"database_img_pc_feat_"+MODEL_PATH[-13:-5]+".pickle")
+		output_to_file(query_feat["img_pc_feat"],"query_img_pc_feat_"+MODEL_PATH[-13:-5]+".pickle")
 		output_to_file(database_feat["pcai_feat"],"database_pcai_feat_"+MODEL_PATH[-13:-5]+".pickle")
 		output_to_file(query_feat["pcai_feat"],"query_pcai_feat_"+MODEL_PATH[-13:-5]+".pickle")
+			
 	
 def get_load_batch_filename(dict_to_process,batch_keys,edge = False,remind_index = 0):
 	pc_files = []
@@ -139,20 +142,23 @@ def train_one_step(sess,ops,train_feed_dict):
 		return feat
 		
 	if TRAINING_MODE == 3:
-		pc_feat,img_feat,pcai_feat= sess.run([ops["pc_feat"],ops["img_feat"],ops["pcai_feat"]],feed_dict = train_feed_dict)
+		pc_feat,img_feat,img_pc_feat,pcai_feat= sess.run([ops["pc_feat"],ops["img_feat"],ops["img_pc_feat"],ops["pcai_feat"]],feed_dict = train_feed_dict)
 		feat = {
 			"pc_feat":pc_feat,
 			"img_feat":img_feat,
-			"pcai_feat":pcai_feat}
+			"pcai_feat":pcai_feat,
+			"img_pc_feat":img_pc_feat}
 		return feat
 		
 def init_all_feat():
 	if TRAINING_MODE != 2:
-		pc_feat = np.empty([0,1000],dtype=np.float32)
+		pc_feat = np.empty([0,4096],dtype=np.float32)
 	if TRAINING_MODE != 1:
-		img_feat = np.empty([0,1000],dtype=np.float32)
+		img_feat = np.empty([0,3048],dtype=np.float32)
 	if TRAINING_MODE == 3:
-		pcai_feat = np.empty([0,1000],dtype=np.float32)
+		img_pc_feat = np.empty([0,2048],dtype=np.float32)
+		pcai_feat = np.empty([0,3048],dtype=np.float32)
+		
 	
 	if TRAINING_MODE == 1:
 		all_feat = {"pc_feat":pc_feat}
@@ -162,7 +168,8 @@ def init_all_feat():
 		all_feat = {
 			"pc_feat":pc_feat,
 			"img_feat":img_feat,
-			"pcai_feat":pcai_feat}
+			"pcai_feat":pcai_feat,
+			"img_pc_feat":img_pc_feat}
 	
 	return all_feat
 	
@@ -172,9 +179,14 @@ def concatnate_all_feat(all_feat,feat):
 	if TRAINING_MODE == 2:
 		all_feat["img_feat"] = np.concatenate((all_feat["img_feat"],feat["img_feat"]),axis=0)
 	if TRAINING_MODE == 3:
+		print(all_feat["pc_feat"])
+		print(feat["pc_feat"])
 		all_feat["pc_feat"] = np.concatenate((all_feat["pc_feat"],feat["pc_feat"]),axis=0)
+		
 		all_feat["img_feat"] = np.concatenate((all_feat["img_feat"],feat["img_feat"]),axis=0)
 		all_feat["pcai_feat"] = np.concatenate((all_feat["pcai_feat"],feat["pcai_feat"]),axis=0)
+		all_feat["img_pc_feat"] = np.concatenate((all_feat["img_pc_feat"],feat["img_pc_feat"]),axis=0)
+		
 	return all_feat
 
 def get_unique_all_feat(all_feat,dict_to_process):
@@ -185,7 +197,9 @@ def get_unique_all_feat(all_feat,dict_to_process):
 	if TRAINING_MODE == 3:
 		all_feat["pc_feat"] = all_feat["pc_feat"][0:len(dict_to_process.keys()),:]
 		all_feat["img_feat"] = all_feat["img_feat"][0:len(dict_to_process.keys()),:]	
-		all_feat["pcai_feat"] = all_feat["pcai_feat"][0:len(dict_to_process.keys()),:]			
+		all_feat["pcai_feat"] = all_feat["pcai_feat"][0:len(dict_to_process.keys()),:]	
+		all_feat["img_pc_feat"] = all_feat["img_pc_feat"][0:len(dict_to_process.keys()),:]	
+					
 	return all_feat
 
 def cal_trans_data(pc_dict,cnt = -1):
@@ -243,15 +257,16 @@ def cal_trans_data(pc_dict,cnt = -1):
 	transform_matrix[row1] = 1
 	transform_matrix = transform_matrix.reshape([80,4096])
 	
-	'''
-	aa = np.sum(transform_matrix,1).reshape([8,10])
-	print(np.sum(aa))
-	plt.figure(2)
-	plt.imshow(aa)	
-	plt.show()
-	input()
-	exit()
-	'''
+	row_sum = np.sum(transform_matrix,1)
+	above_one = np.where(row_sum >= 1)
+	row_sum = np.expand_dims(row_sum,1).repeat(4096,axis=1)
+	transform_matrix[above_one,:] = transform_matrix[above_one,:]/row_sum[above_one,:]
+	global_matrix = np.ones(transform_matrix.shape)*1/409600
+	transform_matrix = transform_matrix + global_matrix
+	
+	row_sum = np.sum(transform_matrix,1)
+	row_sum = np.expand_dims(row_sum,1).repeat(4096,axis=1)
+	transform_matrix[:,:] = transform_matrix[:,:]/row_sum[:,:]
 	
 	return transform_matrix
 	
@@ -394,6 +409,7 @@ def	append_feat(all_feat,cur_feat):
 	if TRAINING_MODE != 1:
 		all_feat["img_feat"].append(cur_feat["img_feat"])
 	if TRAINING_MODE == 3:
+		all_feat["img_pc_feat"].append(cur_feat["img_pc_feat"])
 		all_feat["pcai_feat"].append(cur_feat["pcai_feat"])
 	return all_feat
 	
@@ -405,6 +421,8 @@ def cal_all_features(ops,sess):
 		database_img_feat = []
 		query_img_feat = []
 	if TRAINING_MODE == 3:
+		database_img_pc_feat = []
+		query_img_pc_feat = []
 		database_pcai_feat = []
 		query_pcai_feat = []
 		
@@ -422,11 +440,13 @@ def cal_all_features(ops,sess):
 		database_feat = {
 			"pc_feat":database_pc_feat,
 			"img_feat":database_img_feat,
-			"pcai_feat":database_pcai_feat}
+			"pcai_feat":database_pcai_feat,
+			"img_pc_feat":database_img_pc_feat}
 		query_feat = {
 			"pc_feat":query_pc_feat,
 			"img_feat":query_img_feat,
-			"pcai_feat":query_pcai_feat}
+			"pcai_feat":query_pcai_feat,
+			"img_pc_feat":query_img_pc_feat}
 	
 	
 	for i in range(len(DATABASE_SETS)):
@@ -470,14 +490,15 @@ def init_pcnetwork(step):
 		trans_mat_placeholder = tf.placeholder(tf.float32,shape=[BATCH_SIZE,80,4096])
 		is_training_pl = tf.placeholder(tf.bool, shape=())
 		bn_decay = get_bn_decay(step)
-		pc_feat = pointnetvlad(pc_placeholder,is_training_pl,bn_decay)	
-	return pc_placeholder,is_training_pl,trans_mat_placeholder,pc_feat
-	
+		pc_feat,pc_trans_feat = pointnetvlad(pc_placeholder,trans_mat_placeholder,is_training_pl,bn_decay)	
+	return pc_placeholder,is_training_pl,trans_mat_placeholder,pc_feat,pc_trans_feat
 
-def init_fusion_network(pc_feat,img_feat):
+	
+def init_fusion_network(pc_feat,img_feat,img_pc_feat):
 	with tf.variable_scope("fusion_var"):
-		concat_feat = tf.concat((pc_feat,img_feat),axis=1)
-		pcai_feat = tf.layers.dense(concat_feat,EMBBED_SIZE,activation=tf.nn.relu)
+		pcai_feat = tf.concat((pc_feat,img_pc_feat),axis=1)
+		#pcai_feat = tf.concat((pc_feat,img_feat,img_pc_feat),axis=1)
+		#pcai_feat = tf.layers.dense(concat_feat,EMBBED_SIZE,activation=tf.nn.relu,name='dense_global_fuse')
 	return pcai_feat
 
 def init_pcainetwork():
@@ -486,14 +507,25 @@ def init_pcainetwork():
 	pc_trans_feat = None	
 	#init sub-network
 	if TRAINING_MODE != 2:
-		pc_placeholder, is_training_pl, trans_mat_placeholder, pc_feat = init_pcnetwork(step)
+		pc_placeholder, is_training_pl, trans_mat_placeholder, pc_feat,pc_trans_feat = init_pcnetwork(step)
 	if TRAINING_MODE != 1:
 		img_placeholder, img_feat, img_pc_feat = init_imgnetwork(pc_trans_feat)
-		img_feat = img_pc_feat
+		#img_feat = img_pc_feat
 	if TRAINING_MODE == 3:
-		pcai_feat = init_fusion_network(pc_feat,img_pc_feat)
+		pcai_feat = init_fusion_network(pc_feat,img_pc_feat,img_pc_feat)
+	
+	img_tmp_feat = tf.concat((pc_feat,img_feat),axis=1)
+	pc_feat = tf.concat((img_pc_feat,img_feat),axis=1)
+	img_feat = img_tmp_feat
+
 		
 		
+	
+	print(pc_feat)
+	print(img_feat)
+	print(pcai_feat)
+	print(img_pc_feat)
+	
 	#output of pcainetwork init
 	if TRAINING_MODE == 1:
 		ops = {
@@ -516,6 +548,7 @@ def init_pcainetwork():
 			"trans_mat_placeholder":trans_mat_placeholder,
 			"pc_feat":pc_feat,
 			"img_feat":img_feat,
+			"img_pc_feat":img_pc_feat,	
 			"pcai_feat":pcai_feat}
 		return ops
 		

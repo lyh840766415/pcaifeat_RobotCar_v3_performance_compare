@@ -254,6 +254,49 @@ def resnet_v1_block(scope, base_depth, num_units, stride):
       'stride': stride
   }])
 
+def resnet_v1_block_2x_base(scope, base_depth, num_units, stride):
+  """Helper function for creating a resnet_v1 bottleneck block.
+
+  Args:
+    scope: The scope of the block.
+    base_depth: The depth of the bottleneck layer for each unit.
+    num_units: The number of units in the block.
+    stride: The stride of the block, implemented as a stride in the last unit.
+      All other units have stride=1.
+
+  Returns:
+    A resnet_v1 bottleneck block.
+  """
+  return resnet_utils.Block(scope, bottleneck, [{
+      'depth': base_depth * 2,
+      'depth_bottleneck': base_depth,
+      'stride': 1
+  }] * (num_units - 1) + [{
+      'depth': base_depth * 2,
+      'depth_bottleneck': base_depth,
+      'stride': stride
+  }])
+
+def resnet_v1_50_1000d(inputs,
+                 num_classes=None,
+                 is_training=True,
+                 global_pool=True,
+                 output_stride=None,
+                 spatial_squeeze=True,
+                 reuse=None,
+                 scope='resnet_v1_50'):
+  """ResNet-50 model of [1]. See resnet_v1() for arg and return description."""
+  blocks = [
+      resnet_v1_block('block1', base_depth=64, num_units=3, stride=2),
+      resnet_v1_block('block2', base_depth=128, num_units=4, stride=2),
+      resnet_v1_block('block3', base_depth=256, num_units=6, stride=2),
+      resnet_v1_block_2x_base('block4', base_depth=512, num_units=3, stride=1),
+  ]
+  return resnet_v1(inputs, blocks, num_classes, is_training,
+                   global_pool=global_pool, output_stride=output_stride,
+                   include_root_block=True, spatial_squeeze=spatial_squeeze,
+                   reuse=reuse, scope=scope)
+resnet_v1_50_1000d.default_image_size = resnet_v1.default_image_size
 
 def resnet_v1_50(inputs,
                  num_classes=None,

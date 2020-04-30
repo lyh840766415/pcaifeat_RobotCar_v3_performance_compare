@@ -1,6 +1,6 @@
 from tensorflow.python import pywrap_tensorflow
 
-checkpoint_path = "/data/lyh/lab/pcaifeat_RobotCar_v3_performance_compare/log/train_save_trans_exp_4_2/model_00225075.ckpt"
+checkpoint_path = "/data/lyh/lab/pcaifeat_RobotCar_v3_performance_compare/log/train_save_trans_exp_27_2/model_00441147.ckpt"
 reader = pywrap_tensorflow.NewCheckpointReader(checkpoint_path) #tf.train.NewCheckpointReader
 print(reader.debug_string().decode("utf-8"))
 exit()

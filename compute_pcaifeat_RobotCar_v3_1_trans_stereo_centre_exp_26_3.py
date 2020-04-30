@@ -1,6 +1,6 @@
 import numpy as np
 from loading_input_v3 import *
-from pointnetvlad_v3.pointnetvlad_non_local import *
+from pointnetvlad_v3.pointnetvlad_non_local_bn import *
 import pointnetvlad_v3.loupe as lp
 import nets_v3.resnet_v1_trans as resnet
 import tensorflow as tf
@@ -23,13 +23,13 @@ TRAINING_MODE = 1
 BATCH_SIZE = 50
 EMBBED_SIZE = 1000
 
-DATABASE_FILE= 'generate_queries_v3/stereo_centre_trans_RobotCar_ground_oxford_evaluation_database.pickle'
-QUERY_FILE= 'generate_queries_v3/stereo_centre_trans_RobotCar_ground_oxford_evaluation_query.pickle'
+DATABASE_FILE= 'generate_queries_v3/stereo_centre_trans_RobotCar_ground_selected_oxford_evaluation_database.pickle'
+QUERY_FILE= 'generate_queries_v3/stereo_centre_trans_RobotCar_ground_selected_oxford_evaluation_query.pickle'
 DATABASE_SETS= get_sets_dict(DATABASE_FILE)
 QUERY_SETS= get_sets_dict(QUERY_FILE)
 
 #model_path & image path
-PC_MODEL_PATH = "/data/lyh/lab/pcaifeat_RobotCar_v3_performance_compare/log/train_save_trans_exp_26/pc_model_00441147.ckpt"
+PC_MODEL_PATH = "/data/lyh/lab/pcaifeat_RobotCar_v3_performance_compare/log/train_save_trans_exp_26_3/pc_model_00441147.ckpt"
 IMG_MODEL_PATH = ""
 MODEL_PATH = ""
 
@@ -470,7 +470,7 @@ def init_pcnetwork(step):
 		trans_mat_placeholder = tf.placeholder(tf.float32,shape=[BATCH_SIZE,80,4096])
 		is_training_pl = tf.placeholder(tf.bool, shape=())
 		bn_decay = get_bn_decay(step)
-		pc_feat = pointnetvlad(pc_placeholder,is_training_pl,bn_decay)	
+		pc_feat = pointnetvlad(pc_placeholder,is_training_pl,bn_decay,False)	
 	return pc_placeholder,is_training_pl,trans_mat_placeholder,pc_feat
 	
 

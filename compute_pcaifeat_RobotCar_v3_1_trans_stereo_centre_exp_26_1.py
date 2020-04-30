@@ -29,7 +29,7 @@ DATABASE_SETS= get_sets_dict(DATABASE_FILE)
 QUERY_SETS= get_sets_dict(QUERY_FILE)
 
 #model_path & image path
-PC_MODEL_PATH = "/data/lyh/lab/pcaifeat_RobotCar_v3_performance_compare/log/train_save_trans_exp_26/pc_model_00441147.ckpt"
+PC_MODEL_PATH = "/data/lyh/lab/pcaifeat_RobotCar_v3_performance_compare/log/train_save_trans_exp_26_1/pc_model_00441147.ckpt"
 IMG_MODEL_PATH = ""
 MODEL_PATH = ""
 

@@ -1,8 +1,8 @@
 import numpy as np
 from loading_input_v3 import *
-from pointnetvlad_v3.pointnetvlad_non_local import *
+from pointnetvlad_v3.pointnetvlad_trans import *
 import pointnetvlad_v3.loupe as lp
-import nets_v3.resnet_v1_trans as resnet
+import nets_v3.resnet_v1_trans_no_fc_1000d as resnet
 import tensorflow as tf
 from time import *
 import pickle
@@ -19,18 +19,18 @@ import matplotlib.pyplot as plt
 pool = ThreadPool(5)
 
 # 1 for point cloud only, 2 for image only, 3 for pc&img&fc
-TRAINING_MODE = 1
-BATCH_SIZE = 50
+TRAINING_MODE = 2
+BATCH_SIZE = 100
 EMBBED_SIZE = 1000
 
-DATABASE_FILE= 'generate_queries_v3/stereo_centre_trans_RobotCar_ground_oxford_evaluation_database.pickle'
-QUERY_FILE= 'generate_queries_v3/stereo_centre_trans_RobotCar_ground_oxford_evaluation_query.pickle'
+DATABASE_FILE= 'generate_queries_v3/stereo_centre_trans_RobotCar_ground_selected_oxford_evaluation_database.pickle'
+QUERY_FILE= 'generate_queries_v3/stereo_centre_trans_RobotCar_ground_selected_oxford_evaluation_query.pickle'
 DATABASE_SETS= get_sets_dict(DATABASE_FILE)
 QUERY_SETS= get_sets_dict(QUERY_FILE)
 
 #model_path & image path
-PC_MODEL_PATH = "/data/lyh/lab/pcaifeat_RobotCar_v3_performance_compare/log/train_save_trans_exp_26/pc_model_00441147.ckpt"
-IMG_MODEL_PATH = ""
+PC_MODEL_PATH = "/data/lyh/lab/pcaifeat_RobotCar_v3_performance_compare/log/train_save_trans_exp_6_5/img_model_00441147.ckpt"
+IMG_MODEL_PATH = "/data/lyh/lab/pcaifeat_RobotCar_v3_performance_compare/log/train_save_trans_exp_6_8/img_model_00441147.ckpt"
 MODEL_PATH = ""
 
 #camera model and posture
@@ -150,7 +150,7 @@ def init_all_feat():
 	if TRAINING_MODE != 2:
 		pc_feat = np.empty([0,1000],dtype=np.float32)
 	if TRAINING_MODE != 1:
-		img_feat = np.empty([0,1000],dtype=np.float32)
+		img_feat = np.empty([0,1024],dtype=np.float32)
 	if TRAINING_MODE == 3:
 		pcai_feat = np.empty([0,1000],dtype=np.float32)
 	
@@ -170,7 +170,10 @@ def concatnate_all_feat(all_feat,feat):
 	if TRAINING_MODE == 1:
 		all_feat["pc_feat"] = np.concatenate((all_feat["pc_feat"],feat["pc_feat"]),axis=0)
 	if TRAINING_MODE == 2:
+		print(all_feat["img_feat"].shape)
+		print(feat["img_feat"].shape)
 		all_feat["img_feat"] = np.concatenate((all_feat["img_feat"],feat["img_feat"]),axis=0)
+
 	if TRAINING_MODE == 3:
 		all_feat["pc_feat"] = np.concatenate((all_feat["pc_feat"],feat["pc_feat"]),axis=0)
 		all_feat["img_feat"] = np.concatenate((all_feat["img_feat"],feat["img_feat"]),axis=0)
@@ -470,9 +473,9 @@ def init_pcnetwork(step):
 		trans_mat_placeholder = tf.placeholder(tf.float32,shape=[BATCH_SIZE,80,4096])
 		is_training_pl = tf.placeholder(tf.bool, shape=())
 		bn_decay = get_bn_decay(step)
-		pc_feat = pointnetvlad(pc_placeholder,is_training_pl,bn_decay)	
-	return pc_placeholder,is_training_pl,trans_mat_placeholder,pc_feat
-	
+		pc_feat,pc_trans_feat = pointnetvlad(pc_placeholder,trans_mat_placeholder,is_training_pl,bn_decay)	
+	return pc_placeholder,is_training_pl,trans_mat_placeholder,pc_feat,pc_trans_feat
+
 
 def init_fusion_network(pc_feat,img_feat):
 	with tf.variable_scope("fusion_var"):
@@ -486,10 +489,10 @@ def init_pcainetwork():
 	pc_trans_feat = None	
 	#init sub-network
 	if TRAINING_MODE != 2:
-		pc_placeholder, is_training_pl, trans_mat_placeholder, pc_feat = init_pcnetwork(step)
+		pc_placeholder, is_training_pl, trans_mat_placeholder, pc_feat,pc_trans_feat = init_pcnetwork(step)
 	if TRAINING_MODE != 1:
 		img_placeholder, img_feat, img_pc_feat = init_imgnetwork(pc_trans_feat)
-		img_feat = img_pc_feat
+		#img_feat = img_pc_feat
 	if TRAINING_MODE == 3:
 		pcai_feat = init_fusion_network(pc_feat,img_pc_feat)
 		
