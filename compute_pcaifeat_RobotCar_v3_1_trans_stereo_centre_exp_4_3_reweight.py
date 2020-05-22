@@ -11,6 +11,12 @@ sys.path.append('/data/lyh/lab/robotcar-dataset-sdk/python')
 from camera_model import CameraModel
 from transform import build_se3_transform
 
+#pc_img_relation_weight
+pc_reweight = np.loadtxt("inv_pc_reweight.txt")
+img_reweight = np.loadtxt("inv_img_reweight.txt")
+img_pc_reweight = np.concatenate((pc_reweight,img_reweight))
+print(img_pc_reweight.shape)
+
 #thread pool
 pool = ThreadPool(10)
 
@@ -125,6 +131,9 @@ def prepare_batch_data(pc_data,img_data,ops):
 	exit()
 
 def train_one_step(sess,ops,train_feed_dict):
+	global pc_reweight
+	global img_reweight
+	
 	if TRAINING_MODE == 1:
 		pc_feat= sess.run([ops["pc_feat"]],feed_dict = train_feed_dict)
 		feat = {
@@ -139,6 +148,12 @@ def train_one_step(sess,ops,train_feed_dict):
 		
 	if TRAINING_MODE == 3:
 		pc_feat,img_feat,pcai_feat= sess.run([ops["pc_feat"],ops["img_feat"],ops["pcai_feat"]],feed_dict = train_feed_dict)
+		reweight_img = np.tile(img_reweight,(pcai_feat.shape[0],1))
+		reweight_pc = np.tile(pc_reweight,(pcai_feat.shape[0],1))
+		pc_feat = pc_feat*reweight_pc
+		img_feat = img_feat*reweight_img
+		pcai_feat = np.concatenate((pc_feat,img_feat),axis=1)
+		
 		feat = {
 			"pc_feat":pc_feat,
 			"img_feat":img_feat,

@@ -99,10 +99,11 @@ def load_image(filename):
 	#return scaled image
 	if not os.path.exists(filename):
 		print(filename)
-		return np.zeros((320,240,3))
-		
+		return np.zeros((240,320,3))
+	
 	img = cv2.imread(filename)
 	img = cv2.resize(img,(320,240))
+	
 	return img
 
 def load_image_demosaic(filename):
@@ -153,7 +154,7 @@ def load_img_pc(load_pc_filenames,load_img_filenames,pool,pc_64bit):
 	if load_img_filenames != None:
 		imgs = pool.map(load_image,load_img_filenames)
 		imgs=np.array(imgs)
-	
+
 	return pcs,imgs
 
 def load_img_pc_from_net(load_pc_filenames,load_img_filenames,pool,pc_64bit):

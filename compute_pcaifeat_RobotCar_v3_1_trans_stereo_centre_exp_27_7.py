@@ -147,7 +147,7 @@ def train_one_step(sess,ops,train_feed_dict):
 		
 def init_all_feat():
 	if TRAINING_MODE != 2:
-		pc_feat = np.empty([0,1000],dtype=np.float32)
+		pc_feat = np.empty([0,1024],dtype=np.float32)
 	if TRAINING_MODE != 1:
 		img_feat = np.empty([0,2048],dtype=np.float32)
 	if TRAINING_MODE == 3:
@@ -540,15 +540,21 @@ def init_pcainetwork():
 	if TRAINING_MODE != 1:
 		img_placeholder, img_feat = init_imgnetwork()
 	if TRAINING_MODE == 3:
-		pcai_feat,pc_feat,img_feat = init_fusion_network(pc_feat,img_feat)
+		#pcai_feat,pc_feat,img_feat = init_fusion_network(pc_feat,img_feat)
+		#for pointnet feat and resnet feat
+		pcai_feat,_,_ = init_fusion_network(pc_feat,img_feat)
 		
 		
+	img_feat = tf.reduce_mean(img_feat, [1, 2], name='pool5')
+	pc_feat = tf.reduce_max(pc_feat, [1, 2], name='pointnet_max_pool')
+	
 	'''
 	print(img_feat)
 	print(pc_feat)
 	print(pcai_feat)
 	exit()
 	'''
+	
 	
 	#output of pcainetwork init
 	if TRAINING_MODE == 1:

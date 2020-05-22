@@ -10,7 +10,7 @@ from multiprocessing.dummy import Pool as ThreadPool
 sys.path.append('/data/lyh/lab/robotcar-dataset-sdk/python')
 from camera_model import CameraModel
 from transform import build_se3_transform
-
+	
 #thread pool
 pool = ThreadPool(10)
 
@@ -340,17 +340,25 @@ def cal_all_features(ops,sess):
 			"img_feat":query_img_feat,
 			"pcai_feat":query_pcai_feat}
 	
-	
+	pc_img_sim = np.zeros([2048,1000])
 	for i in range(len(DATABASE_SETS)):
 		cur_feat = get_latent_vectors(sess, ops, DATABASE_SETS[i])
-		
+		cur_feat["img_feat"] = np.swapaxes(cur_feat["img_feat"],0,1)		
+		pc_img_sim = pc_img_sim + cur_feat["img_feat"].dot(cur_feat["pc_feat"])
+		cur_feat["img_feat"] = np.swapaxes(cur_feat["img_feat"],0,1)
 		database_feat = append_feat(database_feat,cur_feat)
-			
-	for j in range(len(QUERY_SETS)):
-		cur_feat = get_latent_vectors(sess, ops, QUERY_SETS[j])
-		query_feat = append_feat(query_feat,cur_feat)
+		img_pc_2048 = pc_img_sim.sum(axis=1)
+		pc_img_1024 = pc_img_sim.sum(axis=0)
+		np.savetxt("img_pc_2048.txt", img_pc_2048, fmt='%.5f', delimiter='')
+		np.savetxt("pc_img_1024.txt", pc_img_1024, fmt='%.5f', delimiter='')
+		exit()
 	
-	save_feat_to_file(database_feat,query_feat)	
+
+	img_pc_2048 = pc_img_sim.sum(axis=1)
+	pc_img_1024 = pc_img_sim.sum(axis=0)
+	np.savetxt("img_pc_2048.txt", img_pc_2048, fmt='%.5f', delimiter='')
+	np.savetxt("pc_img_1024.txt", pc_img_1024, fmt='%.5f', delimiter='')
+	
 
 def get_learning_rate(epoch):
 	learning_rate = BASE_LEARNING_RATE*((0.9)**(epoch//5))
@@ -471,8 +479,7 @@ def init_train_saver():
 	return train_saver
 	
 
-def main():
-	
+def main():	
 	init_camera_model_posture()
 	#init network pipeline
 	ops = init_pcainetwork()

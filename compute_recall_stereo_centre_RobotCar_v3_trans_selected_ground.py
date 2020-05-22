@@ -9,8 +9,8 @@ def get_queries_dict(filename):
 		print("feature Loaded.")
 		return queries
 
-DATABASE_VECTORS_FILENAME = "database_img_feat_00441147.pickle"
-QUERY_VECTORS_FILENAME = "query_img_feat_00441147.pickle"
+DATABASE_VECTORS_FILENAME = "database_pcai_feat_00219073.pickle"
+QUERY_VECTORS_FILENAME = "query_pcai_feat_00219073.pickle"
 #result output
 output_file = "result_img_trans_mono_left_00240080.txt"
 #load feature

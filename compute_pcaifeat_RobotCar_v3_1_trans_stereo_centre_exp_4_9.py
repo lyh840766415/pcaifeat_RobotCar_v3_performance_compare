@@ -10,9 +10,10 @@ from multiprocessing.dummy import Pool as ThreadPool
 sys.path.append('/data/lyh/lab/robotcar-dataset-sdk/python')
 from camera_model import CameraModel
 from transform import build_se3_transform
+import tensorflow.contrib.slim as slim
 
 #thread pool
-pool = ThreadPool(10)
+pool = ThreadPool(1)
 
 # 1 for point cloud only, 2 for image only, 3 for pc&img&fc
 TRAINING_MODE = 3
@@ -27,7 +28,7 @@ QUERY_SETS= get_sets_dict(QUERY_FILE)
 #model_path & image path
 PC_MODEL_PATH = ""
 IMG_MODEL_PATH = ""
-MODEL_PATH = "/data/lyh/lab/pcaifeat_RobotCar_v3_performance_compare/log/train_save_trans_exp_4_3/model_00219073.ckpt"
+MODEL_PATH = "/data/lyh/lab/pcaifeat_RobotCar_v3_performance_compare/log/train_save_trans_exp_4_9/model_00441147.ckpt"
 
 #camera model and posture
 CAMERA_MODEL = None
@@ -386,11 +387,21 @@ def init_pcnetwork(step):
 	return pc_placeholder,is_training_pl,pc_feat
 	
 	
-def init_fusion_network(pc_feat,img_feat):
+def init_fusion_network(pc_feat,img_feat,is_training=False):
 	with tf.variable_scope("fusion_var"):
 		pcai_feat = tf.concat((pc_feat,img_feat),axis=1)
-		#pcai_feat = tf.layers.dense(concat_feat,EMBBED_SIZE,activation=tf.nn.relu)
-		print(pcai_feat)
+		
+		pcai_feat = tf.contrib.layers.batch_norm(pcai_feat,center=True, scale=True, is_training=is_training,scope='bn')
+		input_dim = pcai_feat.get_shape().as_list()[1] 
+		gating_weights = tf.get_variable("gating_weights",[input_dim, input_dim],initializer = tf.random_normal_initializer(stddev=1 / math.sqrt(input_dim)))	
+		
+		gates = tf.matmul(pcai_feat, gating_weights)
+		gates = slim.batch_norm(gates,center=True,scale=True,is_training=is_training,scope="gating_bn")
+		
+		gates = tf.sigmoid(gates)
+		pcai_feat = tf.multiply(pcai_feat,gates)
+		pcai_feat = tf.nn.l2_normalize(pcai_feat,1)
+
 	return pcai_feat
 	
 	

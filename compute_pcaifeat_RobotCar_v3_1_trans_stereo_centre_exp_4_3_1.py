@@ -1,6 +1,6 @@
 import numpy as np
 from loading_input_v3 import *
-from pointnetvlad_v3.pointnetvlad_cls import *
+from pointnetvlad_v3.pointnetandvlad_cls import *
 import pointnetvlad_v3.loupe as lp
 import nets_v3.resnet_v1_50 as resnet
 import tensorflow as tf
@@ -25,9 +25,9 @@ DATABASE_SETS= get_sets_dict(DATABASE_FILE)
 QUERY_SETS= get_sets_dict(QUERY_FILE)
 
 #model_path & image path
-PC_MODEL_PATH = ""
-IMG_MODEL_PATH = ""
-MODEL_PATH = "/data/lyh/lab/pcaifeat_RobotCar_v3_performance_compare/log/train_save_trans_exp_4_3/model_00219073.ckpt"
+PC_MODEL_PATH = "/data/lyh/lab/pcaifeat_RobotCar_v3_performance_compare/log/train_save_trans_exp_4_3/model_00219073.ckpt"
+IMG_MODEL_PATH = "/data/lyh/lab/pcaifeat_RobotCar_v3_performance_compare/log/train_save_trans_exp_6_5/img_model_00441147.ckpt"
+MODEL_PATH = "/data/lyh/lab/pcaifeat_RobotCar_v3_performance_compare/log/train_save_trans_exp_4_3/model_12345.ckpt"
 
 #camera model and posture
 CAMERA_MODEL = None
@@ -382,8 +382,8 @@ def init_pcnetwork(step):
 		pc_placeholder = tf.placeholder(tf.float32,shape=[BATCH_SIZE,4096,3])
 		is_training_pl = tf.placeholder(tf.bool, shape=())
 		bn_decay = get_bn_decay(step)
-		pc_feat = pointnetvlad(pc_placeholder,is_training_pl,bn_decay)	
-	return pc_placeholder,is_training_pl,pc_feat
+		pc_feat,pointnet_feat = pointnetvlad(pc_placeholder,is_training_pl,bn_decay)	
+	return pc_placeholder,is_training_pl,pc_feat,pointnet_feat
 	
 	
 def init_fusion_network(pc_feat,img_feat):
@@ -400,13 +400,14 @@ def init_pcainetwork():
 	
 	#init sub-network
 	if TRAINING_MODE != 2:
-		pc_placeholder, is_training_pl, pc_feat = init_pcnetwork(step)
+		pc_placeholder, is_training_pl, pc_feat,pointnet_feat = init_pcnetwork(step)
 	if TRAINING_MODE != 1:
 		img_placeholder, img_feat = init_imgnetwork()
 	if TRAINING_MODE == 3:
 		pcai_feat = init_fusion_network(pc_feat,img_feat)
 		
-	
+	#for pointnet_feat
+	#pc_feat = pointnet_feat
 	print(img_feat)
 	print(pc_feat)
 	print(pcai_feat)
@@ -438,6 +439,7 @@ def init_pcainetwork():
 		
 		
 def init_network_variable(sess,train_saver):
+	sess.run(tf.global_variables_initializer())
 	if TRAINING_MODE == 1:
 		train_saver['pc_saver'].restore(sess,PC_MODEL_PATH)
 		print("pc_model restored")
@@ -449,7 +451,9 @@ def init_network_variable(sess,train_saver):
 		return
 	
 	if TRAINING_MODE == 3:
-		train_saver['all_saver'].restore(sess,MODEL_PATH)
+		train_saver['pc_saver'].restore(sess,PC_MODEL_PATH)
+		train_saver['img_saver'].restore(sess,IMG_MODEL_PATH)
+		#train_saver['all_saver'].restore(sess,MODEL_PATH)
 		print("all_model restored")
 		return
 

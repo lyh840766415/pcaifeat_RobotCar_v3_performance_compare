@@ -27,7 +27,7 @@ QUERY_SETS= get_sets_dict(QUERY_FILE)
 #model_path & image path
 PC_MODEL_PATH = ""
 IMG_MODEL_PATH = ""
-MODEL_PATH = "/data/lyh/lab/pcaifeat_RobotCar_v3_performance_compare/log/train_save_trans_exp_4_3/model_00219073.ckpt"
+MODEL_PATH = "/data/lyh/lab/pcaifeat_RobotCar_v3_performance_compare/log/train_save_trans_exp_4_8/model_00882294.ckpt"
 
 #camera model and posture
 CAMERA_MODEL = None
@@ -387,10 +387,10 @@ def init_pcnetwork(step):
 	
 	
 def init_fusion_network(pc_feat,img_feat):
-	with tf.variable_scope("fusion_var"):
+	with tf.variable_scope("fusion_var"):		
 		pcai_feat = tf.concat((pc_feat,img_feat),axis=1)
-		#pcai_feat = tf.layers.dense(concat_feat,EMBBED_SIZE,activation=tf.nn.relu)
-		print(pcai_feat)
+		pcai_weight = tf.layers.dense(pcai_feat,pcai_feat.get_shape()[1],activation=tf.nn.relu)
+		pcai_feat = pcai_weight*pcai_feat
 	return pcai_feat
 	
 	

@@ -1,8 +1,8 @@
 import numpy as np
 from loading_input_v3 import *
-from pointnetvlad_v3.pointnetvlad_cls import *
+from pointnetvlad_v3.pointnetandvlad_trans import *
 import pointnetvlad_v3.loupe as lp
-import nets_v3.resnet_v1_50 as resnet
+import nets_v3.resnet_v1_trans_no_fc as resnet
 import tensorflow as tf
 from time import *
 import pickle
@@ -10,6 +10,10 @@ from multiprocessing.dummy import Pool as ThreadPool
 sys.path.append('/data/lyh/lab/robotcar-dataset-sdk/python')
 from camera_model import CameraModel
 from transform import build_se3_transform
+from image import load_image
+from scipy.ndimage import map_coordinates
+import matplotlib.pyplot as plt
+
 
 #thread pool
 pool = ThreadPool(10)
@@ -27,7 +31,7 @@ QUERY_SETS= get_sets_dict(QUERY_FILE)
 #model_path & image path
 PC_MODEL_PATH = ""
 IMG_MODEL_PATH = ""
-MODEL_PATH = "/data/lyh/lab/pcaifeat_RobotCar_v3_performance_compare/log/train_save_trans_exp_4_3/model_00219073.ckpt"
+MODEL_PATH = "/data/lyh/lab/pcaifeat_RobotCar_v3_performance_compare/log/train_save_trans_exp_19_1/model_00882294.ckpt"
 
 #camera model and posture
 CAMERA_MODEL = None
@@ -58,7 +62,7 @@ def output_to_file(output, filename):
 	with open(filename, 'wb') as handle:
 		pickle.dump(output, handle, protocol=pickle.HIGHEST_PROTOCOL)
 	print("Done ", filename)
-
+	
 def save_feat_to_file(database_feat,query_feat):
 	if TRAINING_MODE == 1:
 		output_to_file(database_feat["pc_feat"],"database_pc_feat_"+PC_MODEL_PATH[-13:-5]+".pickle")
@@ -83,25 +87,21 @@ def get_load_batch_filename(dict_to_process,batch_keys,edge = False,remind_index
 	if edge :
 		for i in range(BATCH_SIZE):
 			cur_index = min(remind_index-1,i)
-			pc_files.append(dict_to_process[batch_keys[cur_index]]["query"])
-				
+			pc_files.append(dict_to_process[batch_keys[cur_index]]["query"])			
 			img_files.append("%s_stereo_centre.png"%(dict_to_process[batch_keys[cur_index]]["query"][:-4]))
 	else:
 		for i in range(BATCH_SIZE):
 			pc_files.append(dict_to_process[batch_keys[i]]["query"])
 			img_files.append("%s_stereo_centre.png"%(dict_to_process[batch_keys[i]]["query"][:-4]))
-		
-	
-	
 	
 	if TRAINING_MODE == 1:
 		return pc_files,None
 	if TRAINING_MODE == 2:
 		return None,img_files
 	if TRAINING_MODE == 3:
-		return pc_files,img_files	
+		return pc_files,img_files
 
-def prepare_batch_data(pc_data,img_data,ops):
+def prepare_batch_data(pc_data,img_data,trans_data,ops):
 	is_training=False
 	if TRAINING_MODE == 1:
 		train_feed_dict = {
@@ -118,7 +118,8 @@ def prepare_batch_data(pc_data,img_data,ops):
 		train_feed_dict = {
 			ops["is_training_pl"]:is_training,
 			ops["img_placeholder"]:img_data,
-			ops["pc_placeholder"]:pc_data}
+			ops["pc_placeholder"]:pc_data,
+			ops["trans_mat_placeholder"]:trans_data}
 		return train_feed_dict
 		
 	print("prepare_batch_data_error,no_such train mode.")
@@ -167,8 +168,6 @@ def init_all_feat():
 	
 def concatnate_all_feat(all_feat,feat):
 	if TRAINING_MODE == 1:
-		print("all_feat ",all_feat["pc_feat"].shape)
-		print("feat ",feat["pc_feat"].shape)
 		all_feat["pc_feat"] = np.concatenate((all_feat["pc_feat"],feat["pc_feat"]),axis=0)
 	if TRAINING_MODE == 2:
 		all_feat["img_feat"] = np.concatenate((all_feat["img_feat"],feat["img_feat"]),axis=0)
@@ -176,7 +175,7 @@ def concatnate_all_feat(all_feat,feat):
 		all_feat["pc_feat"] = np.concatenate((all_feat["pc_feat"],feat["pc_feat"]),axis=0)
 		all_feat["img_feat"] = np.concatenate((all_feat["img_feat"],feat["img_feat"]),axis=0)
 		all_feat["pcai_feat"] = np.concatenate((all_feat["pcai_feat"],feat["pcai_feat"]),axis=0)
-	return all_feat			
+	return all_feat
 
 def get_unique_all_feat(all_feat,dict_to_process):
 	if TRAINING_MODE == 1:
@@ -188,7 +187,92 @@ def get_unique_all_feat(all_feat,dict_to_process):
 		all_feat["img_feat"] = all_feat["img_feat"][0:len(dict_to_process.keys()),:]	
 		all_feat["pcai_feat"] = all_feat["pcai_feat"][0:len(dict_to_process.keys()),:]			
 	return all_feat
+
+def cal_trans_data(pc_dict,cnt = -1):
+	posfile = pc_dict[0]
+	pointcloud = pc_dict[1]
+	pointcloud = np.hstack([pointcloud, np.ones((pointcloud.shape[0],1))])
+	
+	imgpos = {}
+	with open(posfile) as imgpos_file:
+		for line in imgpos_file:
+			pos = [x for x in line.split(' ')]
+			for i in range(len(pos)-2):
+				pos[i+1] = float(pos[i+1])
+			imgpos[pos[0]] = np.reshape(np.array(pos[1:-1]),[4,4])
+	
+	#translate pointcloud to image coordinate
+	pointcloud = np.dot(np.linalg.inv(imgpos["stereo_centre"]),pointcloud.T)
+	pointcloud = np.dot(G_CAMERA_POSESOURCE, pointcloud)
+	uv = CAMERA_MODEL.project(pointcloud, [1280,960])	
+	
+	
+	#print(CAMERA_MODEL.bilinear_lut[:, 1::-1].shape)
+	lut = CAMERA_MODEL.bilinear_lut[:, 1::-1].T.reshape((2, 960, 1280))
+	lut = np.swapaxes(lut,2,1)
+	u = map_coordinates(lut[0, :, :], uv, order=1)
+	v = map_coordinates(lut[1, :, :], uv, order=1)
+	uv = np.array([u,v])
+	
+	zero0 = np.where(uv[1,:] == 0)
+	zero1 = np.where(uv[0,:] == 0)
+	zero_01 = np.intersect1d(zero0,zero1)
+	nozero = np.setdiff1d(np.arange(4096),zero_01)
+	uv = np.delete(uv,zero_01.tolist(),axis=1)
+	#print(max(uv[0,:]),max(uv[1,:]))
+	
+	if cnt == 0:
+		uv_show = uv/4
+		plt.scatter(np.ravel(uv_show[1, :]), np.ravel(uv_show[0, :]), s=5, edgecolors='none', cmap='jet')
+		plt.xlim(0, 320)
+		plt.ylim(240, 0)
+		plt.xticks([])
+		plt.yticks([])
+		plt.savefig("test.png")
+		plt.cla()
 		
+	
+	transform_matrix = np.zeros([80*4096,1])
+	u = np.floor(uv[0,:]/120)
+	v = np.floor(uv[1,:]/128)
+	row = u*10 + v
+	#print(min(u),min(v),min(row))
+	#print(max(u),max(v),max(row))
+	
+	row1 = (row*4096+nozero).astype(int).tolist()
+	transform_matrix[row1] = 1
+	transform_matrix = transform_matrix.reshape([80,4096])
+	
+	row_sum = np.sum(transform_matrix,1)
+	above_one = np.where(row_sum >= 1)
+	row_sum = np.expand_dims(row_sum,1).repeat(4096,axis=1)
+	transform_matrix[above_one,:] = transform_matrix[above_one,:]/row_sum[above_one,:]
+	global_matrix = np.ones(transform_matrix.shape)*1/409600
+	transform_matrix = transform_matrix + global_matrix
+	
+	row_sum = np.sum(transform_matrix,1)
+	row_sum = np.expand_dims(row_sum,1).repeat(4096,axis=1)
+	transform_matrix[:,:] = transform_matrix[:,:]/row_sum[:,:]
+	
+	return transform_matrix
+	
+	
+def get_trans_datas(load_pc_filenames,pc_data,pool):
+	dict_list = []
+	for i in range(pc_data.shape[0]):
+		para = ("%s_imgpos.txt"%(load_pc_filenames[i][:-4]),pc_data[i,:,:])
+		#print(para_dict)
+		dict_list.append(para)
+	
+	#trans_data = []
+	#for i in range(len(dict_list)):
+	#	trans_data.append(cal_trans_data(dict_list[i],i))
+	#return
+	
+	trans_data = pool.map(cal_trans_data,dict_list)
+	return np.array(trans_data)
+
+
 def get_latent_vectors(sess,ops,dict_to_process):
 	print("dict_size = ",len(dict_to_process.keys()))
 	train_file_idxs = np.arange(0,len(dict_to_process.keys()))
@@ -208,41 +292,42 @@ def get_latent_vectors(sess,ops,dict_to_process):
 		begin_time = time()
 		
 		pc_data,img_data = load_img_pc(load_pc_filenames,load_img_filenames,pool,False)
-		
-		for i in range(len(pc_data)):
-			posfile = "%s_imgpos.txt"%(load_pc_filenames[i][:-4])
-			cur_pc = pc_data[i]
+		trans_data = None
+		if TRAINING_MODE != 2:
+			trans_data = get_trans_datas(load_pc_filenames,pc_data,pool)
+			for i in range(len(pc_data)):
+				posfile = "%s_imgpos.txt"%(load_pc_filenames[i][:-4])
+				cur_pc = pc_data[i]
+				cur_pc = np.hstack([cur_pc, np.ones((cur_pc.shape[0],1))])
+				imgpos = {}
+				with open(posfile) as imgpos_file:
+					for line in imgpos_file:
+						pos = [x for x in line.split(' ')]
+						for j in range(len(pos)-2):
+							pos[j+1] = float(pos[j+1])
+						imgpos[pos[0]] = np.reshape(np.array(pos[1:-1]),[4,4])
+				#translate pointcloud to image coordinate
+				cur_pc = np.dot(np.linalg.inv(imgpos["stereo_centre"]),cur_pc.T)
+				cur_pc = np.dot(G_CAMERA_POSESOURCE, cur_pc)
+				cur_pc = cur_pc[0:3,:].T
 					
-			cur_pc = np.hstack([cur_pc, np.ones((cur_pc.shape[0],1))])
-			imgpos = {}
-			with open(posfile) as imgpos_file:
-				for line in imgpos_file:
-					pos = [x for x in line.split(' ')]
-					for j in range(len(pos)-2):
-						pos[j+1] = float(pos[j+1])
-					imgpos[pos[0]] = np.reshape(np.array(pos[1:-1]),[4,4])
-			#translate pointcloud to image coordinate
-			cur_pc = np.dot(np.linalg.inv(imgpos["stereo_centre"]),cur_pc.T)
-			cur_pc = np.dot(G_CAMERA_POSESOURCE, cur_pc)
-			cur_pc = cur_pc[0:3,:].T
-		
-			mean_cur_pc = cur_pc.mean(axis = 0)
-			cur_pc = cur_pc - mean_cur_pc
-			mean_cur_pc = cur_pc.mean(axis = 0)
-			cur_pc = cur_pc - mean_cur_pc
-					
-			scale = 0.5/(np.sum(np.linalg.norm(cur_pc, axis=1, keepdims=True))/cur_pc.shape[0])
-			T = scale*np.eye(4)
-			T[-1,-1] = 1
-			cur_pc = np.hstack([cur_pc, np.ones((cur_pc.shape[0],1))])
-			cur_pc = np.dot(T,cur_pc.T)
-			pc_data[i] = cur_pc[0:3,:].T
+				mean_cur_pc = cur_pc.mean(axis = 0)
+				cur_pc = cur_pc - mean_cur_pc
+				mean_cur_pc = cur_pc.mean(axis = 0)
+				cur_pc = cur_pc - mean_cur_pc
+				
+				scale = 0.5/(np.sum(np.linalg.norm(cur_pc, axis=1, keepdims=True))/cur_pc.shape[0])
+				T = scale*np.eye(4)
+				T[-1,-1] = 1
+				cur_pc = np.hstack([cur_pc, np.ones((cur_pc.shape[0],1))])
+				cur_pc = np.dot(T,cur_pc.T)
+				pc_data[i] = cur_pc[0:3,:].T
 		
 		end_time = time()
 		
 		print ('load time ',end_time - begin_time)
 		
-		train_feed_dict = prepare_batch_data(pc_data,img_data,ops)
+		train_feed_dict = prepare_batch_data(pc_data,img_data,trans_data,ops)
 		
 		begin_time = time()
 		feat = train_one_step(sess,ops,train_feed_dict)
@@ -263,36 +348,40 @@ def get_latent_vectors(sess,ops,dict_to_process):
 	load_pc_filenames,load_img_filenames = get_load_batch_filename(dict_to_process,batch_keys,True,remind_index)
 	
 	pc_data,img_data = load_img_pc(load_pc_filenames,load_img_filenames,pool,False)
-	for i in range(len(pc_data)):
-		posfile = "%s_imgpos.txt"%(load_pc_filenames[i][:-4])
-		cur_pc = pc_data[i]
-					
-		cur_pc = np.hstack([cur_pc, np.ones((cur_pc.shape[0],1))])
-		imgpos = {}
-		with open(posfile) as imgpos_file:
-			for line in imgpos_file:
-				pos = [x for x in line.split(' ')]
-				for j in range(len(pos)-2):
-					pos[j+1] = float(pos[j+1])
-				imgpos[pos[0]] = np.reshape(np.array(pos[1:-1]),[4,4])
-		#translate pointcloud to image coordinate
-		cur_pc = np.dot(np.linalg.inv(imgpos["stereo_centre"]),cur_pc.T)
-		cur_pc = np.dot(G_CAMERA_POSESOURCE, cur_pc)
-		cur_pc = cur_pc[0:3,:].T
-		
-		mean_cur_pc = cur_pc.mean(axis = 0)
-		cur_pc = cur_pc - mean_cur_pc
-		mean_cur_pc = cur_pc.mean(axis = 0)
-		cur_pc = cur_pc - mean_cur_pc
-					
-		scale = 0.5/(np.sum(np.linalg.norm(cur_pc, axis=1, keepdims=True))/cur_pc.shape[0])
-		T = scale*np.eye(4)
-		T[-1,-1] = 1
-		cur_pc = np.hstack([cur_pc, np.ones((cur_pc.shape[0],1))])
-		cur_pc = np.dot(T,cur_pc.T)
-		pc_data[i] = cur_pc[0:3,:].T
 	
-	train_feed_dict = prepare_batch_data(pc_data,img_data,ops)
+	trans_data = None
+	if TRAINING_MODE != 2:
+		trans_data = get_trans_datas(load_pc_filenames,pc_data,pool)
+		for i in range(len(pc_data)):
+			posfile = "%s_imgpos.txt"%(load_pc_filenames[i][:-4])
+			cur_pc = pc_data[i]
+			cur_pc = np.hstack([cur_pc, np.ones((cur_pc.shape[0],1))])
+			imgpos = {}
+			with open(posfile) as imgpos_file:
+				for line in imgpos_file:
+					pos = [x for x in line.split(' ')]
+					for j in range(len(pos)-2):
+						pos[j+1] = float(pos[j+1])
+					imgpos[pos[0]] = np.reshape(np.array(pos[1:-1]),[4,4])
+			#translate pointcloud to image coordinate
+			cur_pc = np.dot(np.linalg.inv(imgpos["stereo_centre"]),cur_pc.T)
+			cur_pc = np.dot(G_CAMERA_POSESOURCE, cur_pc)
+			cur_pc = cur_pc[0:3,:].T
+			
+			mean_cur_pc = cur_pc.mean(axis = 0)
+			cur_pc = cur_pc - mean_cur_pc
+			mean_cur_pc = cur_pc.mean(axis = 0)
+			cur_pc = cur_pc - mean_cur_pc
+			
+			scale = 0.5/(np.sum(np.linalg.norm(cur_pc, axis=1, keepdims=True))/cur_pc.shape[0])
+			T = scale*np.eye(4)
+			T[-1,-1] = 1
+			cur_pc = np.hstack([cur_pc, np.ones((cur_pc.shape[0],1))])
+			cur_pc = np.dot(T,cur_pc.T)
+			pc_data[i] = cur_pc[0:3,:].T
+		
+	
+	train_feed_dict = prepare_batch_data(pc_data,img_data,trans_data,ops)
 	
 	feat = train_one_step(sess,ops,train_feed_dict)
 	
@@ -369,44 +458,44 @@ def get_bn_decay(step):
 	return bn_decay
 
 
-def init_imgnetwork():
+def init_imgnetwork(pc_trans_feat):
 	with tf.variable_scope("img_var"):
 		img_placeholder = tf.placeholder(tf.float32,shape=[BATCH_SIZE,240,320,3])
-		_, img_feat_after_pooling, body_prefix = resnet.endpoints(img_placeholder,is_training=False)
-		#img_feat = tf.layers.dense(img_feat_after_pooling, EMBBED_SIZE,activation=tf.nn.relu)
-		img_feat = tf.nn.l2_normalize(img_feat_after_pooling,1)
-	return img_placeholder, img_feat
+		img_feat, img_pc_feat = resnet.endpoints(img_placeholder,pc_trans_feat,is_training=False)
+	return img_placeholder, img_feat, img_pc_feat
 	
+
 def init_pcnetwork(step):
 	with tf.variable_scope("pc_var"):
 		pc_placeholder = tf.placeholder(tf.float32,shape=[BATCH_SIZE,4096,3])
+		trans_mat_placeholder = tf.placeholder(tf.float32,shape=[BATCH_SIZE,80,4096])
 		is_training_pl = tf.placeholder(tf.bool, shape=())
 		bn_decay = get_bn_decay(step)
-		pc_feat = pointnetvlad(pc_placeholder,is_training_pl,bn_decay)	
-	return pc_placeholder,is_training_pl,pc_feat
-	
-	
+		pc_feat,pc_trans_feat,pointnet_feat = pointnetvlad(pc_placeholder,trans_mat_placeholder,is_training_pl,bn_decay)	
+	return pc_placeholder,is_training_pl,trans_mat_placeholder,pc_feat,pc_trans_feat,pointnet_feat
+
+
 def init_fusion_network(pc_feat,img_feat):
 	with tf.variable_scope("fusion_var"):
 		pcai_feat = tf.concat((pc_feat,img_feat),axis=1)
 		#pcai_feat = tf.layers.dense(concat_feat,EMBBED_SIZE,activation=tf.nn.relu)
-		print(pcai_feat)
 	return pcai_feat
-	
-	
+
 def init_pcainetwork():
 	#training step
 	step = tf.Variable(0)
-	
+	pc_trans_feat = None	
 	#init sub-network
 	if TRAINING_MODE != 2:
-		pc_placeholder, is_training_pl, pc_feat = init_pcnetwork(step)
+		pc_placeholder, is_training_pl, trans_mat_placeholder, pc_feat,pc_trans_feat,pointnet_feat = init_pcnetwork(step)
 	if TRAINING_MODE != 1:
-		img_placeholder, img_feat = init_imgnetwork()
+		img_placeholder, img_feat, img_pc_feat = init_imgnetwork(pc_trans_feat)
+		img_feat = img_pc_feat
 	if TRAINING_MODE == 3:
-		pcai_feat = init_fusion_network(pc_feat,img_feat)
+		pcai_feat = init_fusion_network(pc_feat,img_pc_feat)
 		
-	
+	#for pointnet feat 20200508
+	#pc_feat = pointnet_feat
 	print(img_feat)
 	print(pc_feat)
 	print(pcai_feat)
@@ -431,6 +520,7 @@ def init_pcainetwork():
 			"is_training_pl":is_training_pl,
 			"pc_placeholder":pc_placeholder,
 			"img_placeholder":img_placeholder,
+			"trans_mat_placeholder":trans_mat_placeholder,
 			"pc_feat":pc_feat,
 			"img_feat":img_feat,
 			"pcai_feat":pcai_feat}
@@ -438,6 +528,8 @@ def init_pcainetwork():
 		
 		
 def init_network_variable(sess,train_saver):
+	sess.run(tf.global_variables_initializer())
+	
 	if TRAINING_MODE == 1:
 		train_saver['pc_saver'].restore(sess,PC_MODEL_PATH)
 		print("pc_model restored")
@@ -457,11 +549,24 @@ def init_network_variable(sess,train_saver):
 def init_train_saver():
 	all_saver = tf.train.Saver()
 	variables = tf.contrib.framework.get_variables_to_restore()
+	
+	
 	pc_variable = [v for v in variables if v.name.split('/')[0] =='pc_var']
 	img_variable = [v for v in variables if v.name.split('/')[0] =='img_var']
 	
-	pc_saver = tf.train.Saver(pc_variable)
-	img_saver = tf.train.Saver(img_variable)
+	'''
+	other_var = pc_variable = [v for v in variables if v.name.split('/')[0] !='pc_var']
+	for var in other_var:
+		print(var)
+	exit()
+	'''
+	
+	pc_saver = None
+	img_saver = None
+	if TRAINING_MODE != 2:
+		pc_saver = tf.train.Saver(pc_variable)
+	if TRAINING_MODE != 1:
+		img_saver = tf.train.Saver(img_variable)
 	
 	train_saver = {
 		'all_saver':all_saver,
@@ -472,8 +577,9 @@ def init_train_saver():
 	
 
 def main():
-	
+	#init_camera_model_posture
 	init_camera_model_posture()
+	
 	#init network pipeline
 	ops = init_pcainetwork()
 	
