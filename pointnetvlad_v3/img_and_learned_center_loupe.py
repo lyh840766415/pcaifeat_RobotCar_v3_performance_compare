@@ -29,7 +29,7 @@ import numpy as np
 class PoolingBaseModel(object):
     """Inherit from this class when implementing new models."""
 
-    def __init__(self, feature_size, max_samples, cluster_size, output_dim,
+    def __init__(self, feature_size, max_samples, output_dim,
             gating=True,add_batch_norm=True, is_training=True):
         """Initialize a NetVLAD block.
         Args:
@@ -47,7 +47,6 @@ class PoolingBaseModel(object):
         self.is_training = is_training
         self.gating = gating
         self.add_batch_norm = add_batch_norm
-        self.cluster_size = cluster_size
 
     def forward(self, reshaped_input):
         raise NotImplementedError("Models should implement the forward pass.")
@@ -94,18 +93,17 @@ class PoolingBaseModel(object):
 class NetVLAD(PoolingBaseModel):
     """Creates a NetVLAD class.
     """
-    def __init__(self, feature_size, max_samples, cluster_size, output_dim,
+    def __init__(self, feature_size, max_samples, output_dim,
             gating=True,add_batch_norm=True, is_training=True):
         super(self.__class__, self).__init__(
             feature_size=feature_size,
             max_samples=max_samples,
-            cluster_size=cluster_size,
             output_dim=output_dim,
             gating=gating,
             add_batch_norm=add_batch_norm,
             is_training=is_training)
 
-    def forward(self, reshaped_input):
+    def forward(self, reshaped_input, img_feat):
         """Forward pass of a NetVLAD block.
         Args:
         reshaped_input: If your input is in that form:
@@ -118,7 +116,8 @@ class NetVLAD(PoolingBaseModel):
         vlad: the pooled vector of size: 'batch_size' x 'output_dim'
         """
 
-
+        self.cluster_size = 64 + img_feat.get_shape()[1].value
+        
         cluster_weights = tf.get_variable("cluster_weights",
               [self.feature_size, self.cluster_size],
               initializer = tf.random_normal_initializer(
@@ -158,14 +157,18 @@ class NetVLAD(PoolingBaseModel):
                 [-1, self.max_samples, self.cluster_size])
 
         a_sum = tf.reduce_sum(activation,-2,keep_dims=True)
-
-        cluster_weights2 = tf.get_variable("cluster_weights2",
-            [1,self.feature_size, self.cluster_size],
+        
+        img_feat = tf.transpose(img_feat,perm=[0,2,1])
+        
+        cluster_weights2_learned = tf.get_variable("cluster_weights2",
+            [1,self.feature_size, 64],
             initializer = tf.random_normal_initializer(
                 stddev=1 / math.sqrt(self.feature_size)))
+                
+        cluster_weights2_learned = tf.tile(cluster_weights2_learned,[img_feat.get_shape()[0],1,1])
+        cluster_weights2 = tf.concat((img_feat,cluster_weights2_learned),axis=2)
         
         a = tf.multiply(a_sum,cluster_weights2)
-
         
         activation = tf.transpose(activation,perm=[0,2,1])
         
@@ -175,7 +178,7 @@ class NetVLAD(PoolingBaseModel):
         vlad = tf.matmul(activation,reshaped_input)
         vlad = tf.transpose(vlad,perm=[0,2,1])
         vlad = tf.subtract(vlad,a)
-
+        
 
         vlad = tf.nn.l2_normalize(vlad,1)
 
