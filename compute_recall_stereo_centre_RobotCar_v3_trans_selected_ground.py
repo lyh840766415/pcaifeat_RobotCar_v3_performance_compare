@@ -9,8 +9,8 @@ def get_queries_dict(filename):
 		print("feature Loaded.")
 		return queries
 
-DATABASE_VECTORS_FILENAME = "database_pcai_feat_00219073.pickle"
-QUERY_VECTORS_FILENAME = "query_pcai_feat_00219073.pickle"
+DATABASE_VECTORS_FILENAME = "database_pcai_feat_00882294.pickle"
+QUERY_VECTORS_FILENAME = "query_pcai_feat_00882294.pickle"
 #result output
 output_file = "result_img_trans_mono_left_00240080.txt"
 #load feature
@@ -129,7 +129,11 @@ def main():
 	average_similarity= np.mean(similarity)
 	print(average_similarity)
 	
+	print("Average Similarity:\n")
 	ave_one_percent_recall= np.mean(one_percent_recall)
+	
+	
+	print("Average Top 1% Recall:\n")
 	print(ave_one_percent_recall)
 	
 	#filename=RESULTS_FOLDER +'average_recall_oxford_netmax_sg(finetune_conv5).txt'

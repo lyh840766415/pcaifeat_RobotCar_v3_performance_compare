@@ -16,7 +16,7 @@ pool = ThreadPool(10)
 
 # 1 for point cloud only, 2 for image only, 3 for pc&img&fc
 TRAINING_MODE = 3
-BATCH_SIZE = 100
+BATCH_SIZE = 20
 EMBBED_SIZE = 1000
 
 DATABASE_FILE= 'generate_queries_v3/stereo_centre_trans_RobotCar_ground_selected_oxford_evaluation_database.pickle'
